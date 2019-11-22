@@ -184,18 +184,16 @@ class MatrixSummaryStats:
         # These calls are necessary to create the n_genes and n_counts columns.
         # Actual gene threshold is set by self.min_gene_count during the call to the service, so we don't actually
         # filter cells by gene count here so small matrices don't break the unit tests.
-
-        logger.info('Filtering genes')
-        sc.pp.filter_cells(adata, min_genes=0)
         logger.info('Filtering cells')
+        sc.pp.filter_cells(adata, min_genes=0)
+        logger.info('Filtering genes')
         sc.pp.filter_genes(adata, min_cells=10)
 
         mito_genes = adata.var_names.str.startswith('MT-')
         # For each cell compute fraction of counts of mitochondrian genes vs. all genes. The `.A1`
         # method flattens the matrix (i.e., converts it into an 1-by-n vector). This is necessary
         # as X is sparse (to transform to a dense array after summing).
-        adata.obs['percent_mito_genes'] = np.sum(adata[:, mito_genes].X, axis=1).A1 /\
-                                    np.sum(adata.X, axis=1).A1
+        adata.obs['percent_mito_genes'] = np.sum(adata[:, mito_genes].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
         # Add the total counts per cell as observations-annotation to adata.
         adata.obs['n_counts'] = adata.X.sum(axis=1).A1
 
@@ -214,12 +212,10 @@ class MatrixSummaryStats:
         #               save=f'_percentMitoGenes_vs_count{figure_format}', show=False)
 
         # 5. Figure: visualize highly-variable genes:
-        # sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e3)
         logger.info('Normalizing ...')
         sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)  # Jing
         sc.pp.log1p(adata)  # logarithmize
         adata.raw = adata   # save raw data
-        # sc.pp.highly_variable_genes(adata, min_mean=0.05, max_mean=30, min_disp=1.9)
 
         sc.pp.highly_variable_genes(adata)                            # Jing
         adata = adata[:, adata.var['highly_variable']]                # Jing
@@ -245,35 +241,30 @@ class MatrixSummaryStats:
             sc.pp.neighbors(adata)  # Jing
 
             sc.tl.umap(adata)
-            #sc.tl.louvain(adata)
 
             logger.info('Computing Louvain clustering')
-            # A previous comment indicated that Jing had requested resolution 0.5
-            # but this caused all genes to go into a single cluster
-            sc.tl.louvain(adata, resolution=1.0)
+            sc.tl.louvain(adata)
 
             # sc.pl.umap(adata, color=['louvain', 'CST3'], show=False, save=figure_format)
 
             # For Jing, Barcelona conference:
             logger.info('Writing clusters file')
-            #results_dir = os.path.dirname(__file__)
             results_dir = 'data/Jing_Barcelona_files/min_gene_count_10'
             os.makedirs(results_dir)
-            results_file = f'{results_dir}/{self.project_uuid}_clusters.txt'  # should NOT be txt files, they are tsv
+            results_file = f'{results_dir}/{self.project_uuid}_clusters.tsv'
             df = pd.DataFrame(adata.obs['louvain'])
             df.columns=['louvain cluster']
             df.to_csv(path_or_buf=results_file, sep='\t', index_label='cell')
 
             # 8. Figure: Ranks genes
-            # Options for "method" in the following line are:
-            # {'logreg', 't-test', 'wilcoxon', 't-test_overestim_var'}
+
             sc.tl.rank_genes_groups(adata, 'louvain', method='t-test')
             # sc.pl.rank_genes_groups(adata, n_genes=10, sharey=False, show=False, save=figure_format)
 
             # For Jing, Barcelona conference:
             logger.info('Writing marker genes file')
             logger.info('Writing gene rank file for Jing / Barcelona')
-            results_file = f'{results_dir}/{self.project_uuid}_marker_genes.txt'
+            results_file = f'{results_dir}/{self.project_uuid}_marker_genes.tsv'
             df = pd.DataFrame(adata.uns['rank_genes_groups']['names'])
             df.to_csv(path_or_buf=results_file, sep='\t')
 
@@ -406,8 +397,7 @@ class MatrixSummaryStats:
 
     def cleanup_tmpdir(self):
         logger.info(f'Removing {self.tmpdir.name} ...')
-        shutil.rmtree(self.tmpdir.name)
-        #self.tmpdir.cleanup()
+        self.tmpdir.cleanup()
         logger.info('Temporary directory removed')
 
     def get_matrix_path_and_project_uuid(self):
