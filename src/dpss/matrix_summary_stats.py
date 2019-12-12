@@ -14,8 +14,10 @@ import matplotlib
 
 from dpss.matrix_info import MatrixInfo
 import matplotlib.pyplot as plt
+from dpss.utils import setup_log
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 # See https://stackoverflow.com/questions/27147300/
 # matplotlib-tcl-asyncdelete-async-handler-deleted-by-the-wrong-thread

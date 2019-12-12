@@ -11,8 +11,10 @@ import boto3
 from dpss.config import config
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
+from dpss.utils import setup_log
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 
 class S3Service:

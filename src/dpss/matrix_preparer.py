@@ -22,9 +22,11 @@ from dpss.utils import (
     DirectoryChange,
     gunzip,
     traverse_dirs,
+    setup_log,
 )
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 
 class Mtx:

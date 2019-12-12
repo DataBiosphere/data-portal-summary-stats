@@ -4,13 +4,16 @@ from typing import (
     Set,
     Optional,
 )
+import datetime
 
 
 class Config:
-
     _project_url = 'https://service.{}explore.data.humancellatlas.org/repository/projects/'
     _matrix_url = 'https://matrix.{}data.humancellatlas.org/v1/'
     _assets_bucket = '{}project-assets.data.humancellatlas.org'
+
+    def __init__(self):
+        self._init_time = datetime.datetime.now()
 
     @property
     def source_stage(self) -> str:
@@ -68,5 +71,15 @@ class Config:
     def local_projects_path(self) -> Path:
         return Path('projects')
 
+    @property
+    def main_log_file(self) -> str:
+        return self.time_fmt(self._init_time) + '.dpss.log'
+
+    @property
+    def memory_log_file(self) -> str:
+        return self.time_fmt(self._init_time) + '.dpss.memory.log'
+
+    def time_fmt(self, t: datetime.datetime) -> str:
+        return t.strftime('%m-%d-%Y_%H:%M:%S;%f')
 
 config = Config()

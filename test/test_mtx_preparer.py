@@ -16,8 +16,6 @@ from test.tempdir_test_case import (
     MockMatrixTestCase,
 )
 
-log = logging.getLogger(__name__)
-
 
 def test_scanpy_read(path):
     sc.read_10x_mtx(path, var_names='gene_symbols')

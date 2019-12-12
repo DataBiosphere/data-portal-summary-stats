@@ -1,19 +1,22 @@
 import logging
 
 from dpss import (
-    matrix_provider,
     run,
-    TemporaryDirectoryChange,
+    matrix_provider,
 )
 from dpss.config import config
-log = logging.getLogger(__name__)
+from dpss.memthread import MemoryMonitorThread
+from dpss.utils import (
+    TemporaryDirectoryChange,
+    setup_log,
+)
 
-# Set up logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-   )
+log = logging.getLogger(__name__)
+setup_log(__name__,
+          logging.INFO,
+          logging.StreamHandler(),
+          logging.FileHandler(config.main_log_file))
+
 # These libraries make a lot of debug-level log messages which make the log file hard to read
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -24,6 +27,12 @@ def main():
     log.info(f'{config.matrix_source.capitalize()} matrices will be obtained'
              f' from the {config.source_stage} deployment stage.')
     log.info(f'Results will be uploaded to the {config.target_stage} project assets folder.')
+
+    memory_interval = 30
+    memory_monitor = MemoryMonitorThread(interval=memory_interval)
+    log.info(f'Logging memory usage to {config.memory_log_file}'
+             f' every {memory_interval} seconds.')
+    memory_monitor.start()
 
     provider = matrix_provider.get_provider()
 

@@ -1,4 +1,5 @@
 import gzip
+import logging
 import os
 import math
 import importlib.util
@@ -10,10 +11,16 @@ from typing import (
     Union,
 )
 
-import logging
 from more_itertools import first
 
-logger = logging.getLogger(__name__)
+
+def setup_log(log_name, log_level, *handlers):
+    log = logging.getLogger(log_name)
+    log.setLevel(log_level)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        log.addHandler(handler)
 
 
 # The following is adapted from
