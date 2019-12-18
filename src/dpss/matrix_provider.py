@@ -10,8 +10,8 @@ from typing import (
     List,
     Dict,
     Union,
-    Any,
     Optional,
+    TypeVar,
 )
 import urllib.parse
 
@@ -139,11 +139,18 @@ class FreshMatrixProvider(MatrixProvider):
 
     def obtain_matrix(self, project_id: str) -> MatrixInfo:
         log.info(f'Requesting matrix from project {project_id} from HCA.')
+
         project_title = self.get_project_field(project_id, 'project_title')
         if project_title is None:
             log.info(f'No project title found for project ID {project_id} in Azul')
         else:
             log.info(f'Project title: {project_title}')
+
+        lcas = self.get_project_field(project_id, 'project_lca', [])
+        try:
+            lcas = frozenset(MatrixSummaryStats.translate_lca(lca) for lca in lcas)
+        except ValueError:
+            raise SkipMatrix
 
         status_response = self._request_matrix(project_id)
         assert status_response.status_code == 200
@@ -156,18 +163,11 @@ class FreshMatrixProvider(MatrixProvider):
         with open(matrix_zipfile_name, 'wb') as matrix_zipfile:
             shutil.copyfileobj(matrix_response.raw, matrix_zipfile)
 
-        lcas = self.get_project_field(project_id, 'project_lca', [])
-
-        try:
-            tr_lcas = frozenset(MatrixSummaryStats.translate_lca(lca) for lca in lcas)
-        except ValueError:
-            raise SkipMatrix
-
         return MatrixInfo(source='fresh',
                           project_uuid=project_id,
                           zip_path=matrix_zipfile_name,
                           extract_path=remove_ext(matrix_zipfile_name, '.zip'),
-                          lib_con_approaches=tr_lcas)
+                          lib_con_approaches=lcas)
 
     def _request_matrix(self, project_id: str) -> requests.models.Response:
 
@@ -181,11 +181,6 @@ class FreshMatrixProvider(MatrixProvider):
                         'op': '=',
                         'value': project_id,
                         'field': self.project_id_field
-                    },
-                    {
-                        'op': '>=',
-                        'value': self.get_gene_threshold(project_id),
-                        'field': self.min_gene_count_field
                     }
                 ]
             }
@@ -259,20 +254,12 @@ class FreshMatrixProvider(MatrixProvider):
         except requests.exceptions.HTTPError as err:
             log.warning(f'{str(err)}')
 
-    def get_project_field(self, project_id: str, field: str, default: Any = None) -> Any:
+    T = TypeVar('T')
+
+    def get_project_field(self, project_id: str, field: str, default: T = None) -> Union[str, T]:
         try:
             project = self.projects[project_id]
         except KeyError:
             return default
         else:
             return project[field]
-
-    def get_gene_threshold(self, project_id: str) -> int:
-        lcas = self.get_project_field(project_id, 'project_lca')
-        if lcas:
-            try:
-                return min(map(MatrixSummaryStats.get_min_gene_count, lcas))
-            except ValueError:
-                raise SkipMatrix
-        else:
-            return 0

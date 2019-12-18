@@ -1,4 +1,7 @@
-from typing import Optional
+from typing import (
+    Optional,
+    Iterable,
+)
 
 from more_itertools import one
 import pandas as pd
@@ -38,10 +41,6 @@ class MatrixSummaryStats:
             return '10X'
         raise ValueError(f'Could not parse matrix LCA: {lca}')
 
-    @classmethod
-    def get_min_gene_count(cls, lca: Optional[str]) -> int:
-        return cls.MIN_GENE_COUNTS[cls.translate_lca(lca)]
-
     def __init__(self, mtx_info: MatrixInfo):
         self.info = mtx_info
         self.lca = one(self.info.lib_con_approaches)
@@ -61,7 +60,11 @@ class MatrixSummaryStats:
 
         # 2. Figure: Violin plots of cells, all genes, and percent of mitochondrial genes
 
-        sc.pp.filter_cells(adata, min_genes=self.get_min_gene_count(self.lca))
+        # Shouldn't this be AFTER QC plots? Whole point is show the quality of
+        # the data. At he very least this needs to be documented where the images
+        # are displayed, probably in the figures themselves.
+        # TODO add these filter thresholds as annotations to the plots?
+        sc.pp.filter_cells(adata, min_genes=self.MIN_GENE_COUNTS[self.lca])
         sc.pp.filter_genes(adata, min_cells=self.min_cell_count)
 
         mito_genes = adata.var_names.str.startswith('MT-')

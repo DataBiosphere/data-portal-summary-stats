@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+from collections import defaultdict
 import unittest
 import os
 import filecmp
@@ -42,10 +42,9 @@ class TestMatrixSummaryStats(MockMatrixTestCase):
         for lca in fail_cases:
             self.assertRaises(ValueError, MatrixSummaryStats.translate_lca, lca)
 
-    @mock.patch('dpss.matrix_summary_stats.MatrixSummaryStats.get_min_gene_count')
-    def test_create_images(self, min_gene_method):
-        # Prevent zero division error with small matrix in ScanPy methods
-        min_gene_method.return_value = 0
+    # Prevent zero division error with small matrix in ScanPy methods
+    @mock.patch.object(MatrixSummaryStats, 'MIN_GENE_COUNTS', defaultdict(lambda: 0))
+    def test_create_images(self):
         self.mss.create_images()
         fig_path = 'figures'
         figures_dir = os.listdir(fig_path)
