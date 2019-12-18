@@ -18,6 +18,7 @@ import urllib.parse
 import requests
 
 from dpss.config import config
+from dpss.exceptions import SkipMatrix
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
 from dpss.utils import (
@@ -156,7 +157,11 @@ class FreshMatrixProvider(MatrixProvider):
             shutil.copyfileobj(matrix_response.raw, matrix_zipfile)
 
         lcas = self.get_project_field(project_id, 'project_lca', [])
-        tr_lcas = frozenset(MatrixSummaryStats.translate_lca(lca) for lca in lcas)
+
+        try:
+            tr_lcas = frozenset(MatrixSummaryStats.translate_lca(lca) for lca in lcas)
+        except ValueError:
+            raise SkipMatrix
 
         return MatrixInfo(source='fresh',
                           project_uuid=project_id,
@@ -264,8 +269,10 @@ class FreshMatrixProvider(MatrixProvider):
 
     def get_gene_threshold(self, project_id: str) -> int:
         lcas = self.get_project_field(project_id, 'project_lca')
-        min_gene_func = MatrixSummaryStats.get_min_gene_count
         if lcas:
-            return min(min_gene_func(lca) for lca in lcas)
+            try:
+                return min(map(MatrixSummaryStats.get_min_gene_count, lcas))
+            except ValueError:
+                raise SkipMatrix
         else:
-            return min_gene_func(None)
+            return 0

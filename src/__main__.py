@@ -1,10 +1,12 @@
 #!/usr/env/python3
 
 import logging
+import sys
 import time
 import os
 
 from dpss.config import config
+from dpss.exceptions import SkipMatrix
 from dpss.matrix_preparer import MatrixPreparer
 from dpss.matrix_provider import (
     FreshMatrixProvider,
@@ -45,29 +47,41 @@ def main():
         provider = CannedMatrixProvider(blacklist=do_not_process,
                                         s3_service=s3)
     else:
-        assert False
+        log.error(f'Unrecognized matrix source: {config.matrix_source} (should be "canned" or "fresh)')
+        sys.exit(1)
 
     iter_matrices = iter(provider)
     while True:
         with TemporaryDirectoryChange() as tempdir:
             try:
                 mtx_info = next(iter_matrices)
+            except SkipMatrix as s:
+                log.info(f'Skipping matrix: {s.__cause__}')
+                continue
             except StopIteration:
                 break
+
             log.info(f'Writing to temporary directory {tempdir}')
             log.info(f'Processing matrix for project {mtx_info.project_uuid} ({mtx_info.source})')
 
-            preparer = MatrixPreparer(mtx_info)
-            preparer.unzip()
-            preparer.preprocess()
+            try:
+                preparer = MatrixPreparer(mtx_info)
+                preparer.unzip()
+                preparer.preprocess()
+                sep_mtx_infos = preparer.separate()
+            except RuntimeError as e:
+                log.error(f'Matrix preparation failed: {e}')
+                continue
 
-            for sep_mtx_info in preparer.separate():
+            for sep_mtx_info in sep_mtx_infos:
                 log.info(f'Generating stats for {sep_mtx_info.extract_path}')
-                mss = MatrixSummaryStats(sep_mtx_info)
-                mss.create_images()
-                s3.upload_figures(mtx_info)
-                log.info('Finished uploading figures')
-
+                try:
+                    mss = MatrixSummaryStats(sep_mtx_info)
+                    mss.create_images()
+                    s3.upload_figures(mtx_info)
+                except RuntimeError as e:
+                    log.error(f'Matrix stats generation failed: {e}')
+                    continue
                 # This logic was in Krause's code, no idea why
                 if mtx_info.source == 'fresh':
                     time.sleep(15)

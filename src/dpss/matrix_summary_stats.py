@@ -25,20 +25,18 @@ class MatrixSummaryStats:
     MIN_GENE_COUNTS = {
         'SS2': 1200,
         '10X': 1200,
-        'Unknown method': 1200
     }
 
     @classmethod
-    def translate_lca(cls, lca: Optional[str]) -> str:
-        if lca is not None:
-            # note: project f8aa201c-4ff1-45a4-890e-840d63459ca2 declares the LCA
-            # 'Smart-seq' but there don't seem to be any cells with that LCA after filtering
-            if lca == 'Smart-seq2':
-                return 'SS2'
-            # both upper and lower case present in Azul
-            elif lca.upper().startswith('10X'):
-                return '10X'
-        return 'Unknown method'
+    def translate_lca(cls, lca: str) -> str:
+        # note: project f8aa201c-4ff1-45a4-890e-840d63459ca2 declares the LCA
+        # 'Smart-seq' but there don't seem to be any cells with that LCA after filtering
+        if lca == 'Smart-seq2':
+            return 'SS2'
+        # both upper and lower case present in Azul
+        elif lca.upper().startswith('10X'):
+            return '10X'
+        raise ValueError(f'Could not parse matrix LCA: {lca}')
 
     @classmethod
     def get_min_gene_count(cls, lca: Optional[str]) -> int:

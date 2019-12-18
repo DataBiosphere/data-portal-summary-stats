@@ -23,15 +23,24 @@ class TestMatrixSummaryStats(MockMatrixTestCase):
         self.mss = MatrixSummaryStats(new_info)
 
     def test_lca_translation(self):
-        test_cases = [
+        pass_cases = [
             ('10X v2 sequencing', '10X'),
             ('10x v3 5\' whatever', '10X'),
             ('Smart-seq2', 'SS2'),
-            ('beans', 'Unknown method')
         ]
 
-        for lca, tr_lca in test_cases:
+        for lca, tr_lca in pass_cases:
             self.assertEqual(MatrixSummaryStats.translate_lca(lca), tr_lca)
+
+        fail_cases = [
+           'beans',
+           '20x',
+           'smartseq2',
+           'Smart-seq'
+        ]
+
+        for lca in fail_cases:
+            self.assertRaises(ValueError, MatrixSummaryStats.translate_lca, lca)
 
     @mock.patch('dpss.matrix_summary_stats.MatrixSummaryStats.get_min_gene_count')
     def test_create_images(self, min_gene_method):
