@@ -146,7 +146,7 @@ class FreshMatrixProvider(MatrixProvider):
         else:
             log.info(f'Project title: {project_title}')
 
-        lcas = self.get_project_field(project_id, 'project_lca', [])
+        lcas = self.get_project_field(project_id, 'project_lcas', [])
         try:
             lcas = frozenset(MatrixSummaryStats.translate_lca(lca) for lca in lcas)
         except ValueError:
@@ -222,7 +222,7 @@ class FreshMatrixProvider(MatrixProvider):
             projects.update({
                 hit['entryId']: {
                     'project_title': one(hit['projects'])['projectTitle'],
-                    'project_lca': one(hit['protocols'])['libraryConstructionApproach']
+                    'project_lcas': one(hit['protocols'])['libraryConstructionApproach']
                 }
                 for hit in hits
             })

@@ -8,6 +8,7 @@ import unittest
 import responses
 
 from dpss.config import config
+from dpss.exceptions import SkipMatrix
 from dpss.matrix_provider import (
     CannedMatrixProvider,
     FreshMatrixProvider,
@@ -63,6 +64,7 @@ class TestFresh(TempdirTestCase, TestMatrixProvider):
     @responses.activate
     def test_obtain_matrix(self):
         request_id = '3c44455c-d751-4fc9-a119-3a55c05f8990'
+        matrix_id = 'e7d811e2-832a-4452-85a5-989e2f8267bf'
 
         url_get2 = f'{config.hca_matrix_service_endpoint}matrix/{request_id}'
         matrix_url = 'https://s3.amazonaws.com/fake-matrix-service-results/0/424242/13-13.mtx.zip'
@@ -73,7 +75,7 @@ class TestFresh(TempdirTestCase, TestMatrixProvider):
             self.url_get1,
             json={
                 'cell_counts': {
-                    'e7d811e2-832a-4452-85a5-989e2f8267bf': 2,
+                    matrix_id: 2,
                 },
             })
 
@@ -111,15 +113,38 @@ class TestFresh(TempdirTestCase, TestMatrixProvider):
         # Fifth response: GET in get_expression_matrix_from_service
         responses.add(responses.GET, matrix_url, status=200, stream=True)
 
-        responses.add(responses.GET,
-                      config.azul_project_endpoint,
-                      json={
-                          'foo': 'bar'
-                      })
-
-        mtx_info = self.provider.obtain_matrix('e7d811e2-832a-4452-85a5-989e2f8267bf')
+        mtx_info = self.provider.obtain_matrix(matrix_id)
         self.assertEqual(mtx_info.zip_path, '13-13.mtx.zip')
         self.assertEqual(mtx_info.source, 'fresh')
+
+        # Add azul info so that provider skips bad LCA.
+        projectInfo = {
+            "hits": [
+                {
+                    "entryId": matrix_id,
+                    "projects": [
+                        {
+                            "projectTitle": "foo",
+                        }
+                    ],
+                    "protocols": [
+                        {
+                            "libraryConstructionApproach": [
+                                "bar"
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "pagination": {
+                "search_after": None,
+                "search_after_uid": None
+            }
+        }
+
+        responses.add(responses.GET, config.azul_project_endpoint, status=200, json=projectInfo)
+        self.provider.projects = self.provider._get_project_info_from_azul()
+        self.assertRaises(SkipMatrix, self.provider.obtain_matrix, matrix_id)
 
 
 class TestCanned(TempdirTestCase, S3TestCase, TestMatrixProvider):

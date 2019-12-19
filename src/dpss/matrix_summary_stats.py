@@ -1,8 +1,3 @@
-from typing import (
-    Optional,
-    Iterable,
-)
-
 from more_itertools import one
 import pandas as pd
 import scanpy as sc
