@@ -14,6 +14,10 @@ from test.tempdir_test_case import (
 log = logging.getLogger(__name__)
 
 
+def test_scanpy_read(path):
+    sc.read_10x_mtx(path, var_names='gene_symbols')
+
+
 class TestMatrixPreparer(MockMatrixTestCase):
 
     def setUp(self):
@@ -39,7 +43,7 @@ class TestMatrixPreparer(MockMatrixTestCase):
             #  a lot of info that would be useful in verification
             self.assertEqual(len(df.columns), len(MatrixPreparer.scanpy_tsv_columns[filekey]))
 
-        sc.read_10x_mtx(self.info.extract_path)
+        test_scanpy_read(self.info.extract_path)
 
     def test_prune(self):
 
@@ -68,7 +72,7 @@ class TestMatrixPreparer(MockMatrixTestCase):
             self.assertLess(delta(observed_frac), delta(bound))
 
         self.preparer.preprocess()
-        sc.read_10x_mtx(self.info.extract_path)
+        test_scanpy_read(self.info.extract_path)
 
     def test_separate_homogeneous(self):
         self.preparer.unzip()
@@ -78,7 +82,7 @@ class TestMatrixPreparer(MockMatrixTestCase):
         self.assertEqual(sep_infos[0], self.info)
         self.assertEqual(self.info.lib_con_approaches, frozenset({'SS2'}))
 
-        sc.read_10x_mtx(self.info.extract_path)
+        test_scanpy_read(self.info.extract_path)
 
     def test_separate_heterogeneous(self):
 
@@ -110,7 +114,7 @@ class TestMatrixPreparer(MockMatrixTestCase):
                     self.assertFalse(os.path.islink(filename))
                 else:
                     self.assertTrue(os.path.islink(filename))
-            sc.read_10x_mtx(sep_info.extract_path)
+            test_scanpy_read(sep_info.extract_path)
 
 
 if __name__ == '__main__':

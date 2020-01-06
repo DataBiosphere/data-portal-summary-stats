@@ -55,36 +55,41 @@ def main():
         with TemporaryDirectoryChange() as tempdir:
             try:
                 mtx_info = next(iter_matrices)
+            except StopIteration:
+                break
             except SkipMatrix as s:
                 log.info(f'Skipping matrix: {s.__cause__}')
                 continue
-            except StopIteration:
-                break
 
             log.info(f'Writing to temporary directory {tempdir}')
             log.info(f'Processing matrix for project {mtx_info.project_uuid} ({mtx_info.source})')
 
             try:
-                preparer = MatrixPreparer(mtx_info)
-                preparer.unzip()
-                preparer.preprocess()
-                sep_mtx_infos = preparer.separate()
-            except RuntimeError as e:
-                log.error(f'Matrix preparation failed: {e}')
+                nested_mtx_infos = MatrixPreparer(mtx_info).unzip()
+                for nmi in nested_mtx_infos:
+                    MatrixPreparer(nmi).preprocess()
+            except Exception as e:
+                log.error(f'Matrix preparation failed: {repr(e)}', exc_info=True)
                 continue
 
-            for sep_mtx_info in sep_mtx_infos:
-                log.info(f'Generating stats for {sep_mtx_info.extract_path}')
-                try:
-                    mss = MatrixSummaryStats(sep_mtx_info)
-                    mss.create_images()
-                    s3.upload_figures(mtx_info)
-                except RuntimeError as e:
-                    log.error(f'Matrix stats generation failed: {e}')
-                    continue
-                # This logic was in Krause's code, no idea why
-                if mtx_info.source == 'fresh':
-                    time.sleep(15)
+            log.info(f'Generating stats for {mtx_info.extract_path}')
+
+            try:
+                mss = MatrixSummaryStats(nested_mtx_infos)
+                mss.load_data()
+                mss.create_images()
+
+                if not mtx_info.lib_con_approaches:
+                    mtx_info.lib_con_approaches = frozenset(['SS2'])
+
+                s3.upload_figures(mtx_info)
+            except Exception as e:
+                log.error(f'Matrix stats generation failed: {repr(e)}', exc_info=True)
+                continue
+
+            # This logic was in Krause's code, no idea why
+            if mtx_info.source == 'fresh':
+                time.sleep(15)
     log.info('Finished.')
 
 

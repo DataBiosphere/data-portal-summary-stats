@@ -55,7 +55,7 @@ class MatrixProvider(ABC):
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
         """
         Acquire matrix file in cwd.
-        :param entity_id: identifier of the matrix source.
+        :param entity_i   d: identifier of the matrix source.
         :return: info of the downloaded matrix.
         """
         raise NotImplementedError
@@ -87,7 +87,15 @@ class CannedMatrixProvider(MatrixProvider):
 
     def get_entity_ids(self) -> List[str]:
         """List matrix objects in S3 bucket."""
-        keys = self.s3.list_bucket('matrices')
+
+       #return \
+        [
+            '86963b4f-1e8e-5691-9ba3-465f3a789428.homo_sapiens',  # 130473, pretty but not too dense
+            #'389ad9f9-4a14-5a3d-b971-45dc3baf95f1',  # 124472, densest, most cells
+            '39bfc05a-44ca-507a-bbf5-156bd35c5c74.homo_sapiens',  # 84465
+        ]
+
+        keys = self.s3.list_bucket('matrices', sort='size')
         return [file_id(key, self.mtx_ext)
                 for key in keys
                 if key.endswith(self.mtx_ext)]
@@ -263,3 +271,19 @@ class FreshMatrixProvider(MatrixProvider):
             return default
         else:
             return project[field]
+
+
+class LocalMatrixProvider(MatrixProvider):
+
+    def __init__(self, paths, **kwargs):
+        self.paths = paths
+        super().__init__(**kwargs)
+
+    def get_entity_ids(self) -> List[str]:
+        return self.paths
+
+    def obtain_matrix(self, entity_id: str) -> MatrixInfo:
+        return MatrixInfo(zip_path=entity_id,
+                          extract_path=remove_ext(entity_id, '.zip'),
+                          project_uuid=file_id(entity_id, '.zip'),
+                          source='local')
