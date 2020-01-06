@@ -49,7 +49,7 @@ class MatrixSummaryStats:
         # and populate that directory?
 
         # 1. Figure: highest-expressing genes.
-        adata = sc.read_10x_mtx(self.info.extract_path, var_names='gene_symbols', cache=True)
+        adata = sc.read_10x_mtx(self.info.extract_path, var_names='gene_symbols', cache=False)
         adata.var_names_make_unique()
         sc.pl.highest_expr_genes(adata, n_top=20, save=figure_format, show=False)  # write to disk
 
@@ -59,8 +59,8 @@ class MatrixSummaryStats:
         # the data. At he very least this needs to be documented where the images
         # are displayed, probably in the figures themselves.
         # TODO add these filter thresholds as annotations to the plots?
-        sc.pp.filter_cells(adata, min_genes=self.MIN_GENE_COUNTS[self.lca])
-        sc.pp.filter_genes(adata, min_cells=self.min_cell_count)
+#       sc.pp.filter_cells(adata, min_genes=self.MIN_GENE_COUNTS[self.lca])
+#       sc.pp.filter_genes(adata, min_cells=self.min_cell_count)
 
         mito_genes = adata.var_names.str.startswith('MT-')
         # For each cell compute fraction of counts of mitochondrian genes vs. all genes. The `.A1`
@@ -80,40 +80,3 @@ class MatrixSummaryStats:
         sc.pl.scatter(adata, x='n_counts', y='percent_mito_genes',
                       save=f'_percentMitoGenes_vs_count{figure_format}', show=False)
 
-        # 5. Figure: visualize highly-variable genes:
-        sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e3)
-        sc.pp.log1p(adata)  # logarithmize
-        adata.raw = adata  # save raw data
-        sc.pp.highly_variable_genes(adata, min_mean=0.05, max_mean=30, min_disp=1.9)
-        sc.pl.highly_variable_genes(adata, save=figure_format, show=False)  # write to disk
-
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            # see https://www.gitmemory.com/issue/lmcinnes/umap/252/505984440
-
-            # 6. Figure: Principal components, PC2 against PC1
-            sc.tl.pca(adata, svd_solver='arpack')
-            sc.pl.pca(adata, color='CST3', show=False, save=figure_format)
-
-            # 7. Figure: tSNE, Umap 2 against Umap1, of Louvain and CST3.
-            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
-            sc.tl.umap(adata)
-            sc.tl.louvain(adata)
-            sc.pl.umap(adata, color=['louvain', 'CST3'], show=False, save=figure_format)
-
-            # For Jing, Barcelona conference:
-            results_file = f'./{self.info.project_uuid}_clusters.txt'
-            df = pd.DataFrame(adata.obs['louvain'])
-            df.columns = ['louvain cluster']
-            df.to_csv(path_or_buf=results_file, sep='\t', index_label='cell')
-
-            # 8. Figure: Ranks genes
-            # Options for "method" in the following line are:
-            # {'logreg', 't-test', 'wilcoxon', 't-test_overestim_var'}
-            sc.tl.rank_genes_groups(adata, 'louvain', method='t-test')
-            sc.pl.rank_genes_groups(adata, n_genes=10, sharey=False, show=False, save=figure_format)
-
-            # For Jing, Barcelona conference:
-            results_file = f'./{self.info.project_uuid}_marker_genes.txt'
-            df = pd.DataFrame(adata.uns['rank_genes_groups']['names'])
-            df.to_csv(path_or_buf=results_file, sep='\t')

@@ -68,23 +68,20 @@ def main():
                 preparer = MatrixPreparer(mtx_info)
                 preparer.unzip()
                 preparer.preprocess()
-                sep_mtx_infos = preparer.separate()
             except RuntimeError as e:
                 log.error(f'Matrix preparation failed: {e}')
                 continue
-
-            for sep_mtx_info in sep_mtx_infos:
-                log.info(f'Generating stats for {sep_mtx_info.extract_path}')
-                try:
-                    mss = MatrixSummaryStats(sep_mtx_info)
-                    mss.create_images()
-                    s3.upload_figures(mtx_info)
-                except RuntimeError as e:
-                    log.error(f'Matrix stats generation failed: {e}')
-                    continue
-                # This logic was in Krause's code, no idea why
-                if mtx_info.source == 'fresh':
-                    time.sleep(15)
+            log.info(f'Generating stats for {mtx_info.extract_path}')
+            try:
+                mss = MatrixSummaryStats(mtx_info)
+                mss.create_images()
+                s3.upload_figures(mtx_info)
+            except RuntimeError as e:
+                log.error(f'Matrix stats generation failed: {e}')
+                continue
+            # This logic was in Krause's code, no idea why
+            if mtx_info.source == 'fresh':
+                time.sleep(15)
     log.info('Finished.')
 
 

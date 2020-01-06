@@ -30,7 +30,7 @@ class MatrixPreparer:
 
     hca_zipped_filenames = {
         'genes': 'genes.tsv.gz',
-        'barcodes': 'cells.tsv.gz',
+        'barcodes': 'barcodes.tsv.gz',
         'matrix': 'matrix.mtx.gz'
     }
 
@@ -235,9 +235,10 @@ class MatrixPreparer:
         :param filename: name of un-gzipped, unprocessed file
         :param keep_cols: columns to keep.
         """
+        log.warning('Ignoring named columns')
         df = cls._read_tsv(filename, True)
-        assert all(col in df.columns for col in keep_cols)
-        df = df[keep_cols]
+        # assert all(col in df.columns for col in keep_cols)
+        df = df[:1]
         cls._write_tsv(filename, df)
 
     @classmethod
