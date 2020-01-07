@@ -78,6 +78,11 @@ class MatrixPreparer:
             zipfile.extractall(self.info.extract_path)
         os.remove(self.info.zip_path)
 
+        # Fake out additional directory level that currently isn't there
+        os.rename(self.info.extract_path, 'fake_nest')
+        os.mkdir(self.info.extract_path)
+        os.rename('fake_nest', os.path.join(self.info.extract_path, 'fake_nest'))
+
         new_infos = []
 
         with DirectoryChange(self.info.extract_path):
