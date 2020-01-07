@@ -49,12 +49,21 @@ class MatrixSummaryStats:
         self.adatas = []
 
         for info in self.infos:
+
+            if not info.lib_con_approaches:
+                info.lib_con_approaches = frozenset(['SS2'])
+
             adata = sc.read_10x_mtx(
                 info.extract_path,
                 var_names='gene_symbols',
                 cache=False
             )
             adata.var_names_make_unique()
+
+            # Not actually doing any filtering at the moment,
+            # but need these function calls to fill in vars
+            sc.pp.filter_cells(adata, min_genes=0)
+            sc.pp.filter_genes(adata, min_cells=0)
 
             mito_genes = adata.var_names.str.startswith('MT-')
             # For each cell compute fraction of counts of mitochondrian genes vs. all genes. The `.A1`
@@ -67,8 +76,8 @@ class MatrixSummaryStats:
             self.adatas.append(adata)
 
     def _create_image(self, name, callback, *args, **kwargs):
-        fig, axs = plt.subplots(nrows=len(self.adatas), ncols=1)
-        for ax, adata in zip(axs, self.adatas):
+        fig, axs = plt.subplots(nrows=len(self.adatas), ncols=1, squeeze=False)
+        for ax, adata in zip(axs.flat, self.adatas):
             callback(adata, ax=ax, *args, **kwargs, save=False, show=False)
         fig.savefig(f'figures/{name}.{self.figure_format}')
 
@@ -94,7 +103,7 @@ class MatrixSummaryStats:
                            y='n_genes')
 
         # 4. Figure: Percent mitochondrial genes over number of counts.
-        self._create_image('_percentMitoGenes_vs_count{figure_format}',
+        self._create_image('_percentMitoGenes_vs_count',
                            sc.pl.scatter,
                            x='n_counts',
                            y='percent_mito_genes')
