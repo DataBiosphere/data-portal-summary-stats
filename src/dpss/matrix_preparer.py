@@ -1,6 +1,7 @@
 import gzip
 import logging
 import os
+from pathlib import Path
 import warnings
 
 from more_itertools import one
@@ -36,7 +37,7 @@ class MatrixPreparer:
 
     hca_filenames = {
         'genes': 'genes.tsv',
-        'barcodes': 'cells.tsv',
+        'barcodes': 'barcodes.tsv',
         'matrix': 'matrix.mtx'
     }
 
@@ -53,35 +54,50 @@ class MatrixPreparer:
         'genes': ['featurekey', 'featurename']
     }
 
+    @staticmethod
+    def translate_filename(fname):
+        if fname in ['cells.tsv', 'barcodes.tsv']:
+            return 'barcodes.tsv'
+        elif fname in ['genes.tsv', 'features.tsv']:
+            return 'genes.tsv'
+        elif fname == 'matrix.mtx':
+            return 'matrix.mtx'
+        raise ValueError(f'Couldn\'t understand filename {fname}')
+
     def __init__(self, mtx_info: MatrixInfo):
         self.info = mtx_info
 
-    def unzip(self) -> None:
+    def unzip(self) -> List[MatrixInfo]:
         """
         Extract files from top-level zip archive, uncompress .gz files, and
         remove archive.
         """
         log.info(f'Unzipping {self.info.zip_path}')
-        os.mkdir(self.info.extract_path)
+
         with ZipFile(self.info.zip_path) as zipfile:
-            for member in zipfile.namelist():
-                filename = os.path.basename(member)
-                source = zipfile.open(member)
-                target = open(os.path.join(self.info.extract_path, filename), 'wb')
-                with source, target:
-                    shutil.copyfileobj(source, target)
+            zipfile.extractall(self.info.extract_path)
         os.remove(self.info.zip_path)
 
-        extracted_files = os.listdir(self.info.extract_path)
-        assert all(filename in extracted_files for filename in self.hca_zipped_filenames.values())
+        new_infos = []
 
         with DirectoryChange(self.info.extract_path):
-            for gzfilename in self.hca_zipped_filenames.values():
-                with gzip.open(gzfilename, 'rb') as gzfile:
-                    filename = remove_ext(gzfilename, '.gz')
-                    with open(filename, 'wb') as outfile:
-                        shutil.copyfileobj(gzfile, outfile)
+            for mtx_dir in os.listdir('.'):
+                with DirectoryChange(mtx_dir):
+                    for gzfilename in os.listdir('.'):
+                        with gzip.open(gzfilename, 'rb') as gzfile:
+                            filename = remove_ext(gzfilename, '.gz')
+                            with open(filename, 'wb') as outfile:
+                                shutil.copyfileobj(gzfile, outfile)
                         os.remove(gzfilename)
+            new_infos.append(MatrixInfo(
+                zip_path=None,
+                extract_path=os.path.join(self.info.extract_path, mtx_dir),
+                source=self.info.source,
+                project_uuid=self.info.project_uuid,
+                lib_con_approaches=self.info.lib_con_approaches
+            ))
+
+        return new_infos
 
     def preprocess(self):
         """
@@ -94,7 +110,9 @@ class MatrixPreparer:
                     self._preprocess_tsv(filename, self.scanpy_tsv_columns[filekey])
                 elif filename.endswith('.mtx'):
                     self._preprocess_mtx(filename)
-                os.rename(filename, self.scanpy_filenames[filekey])
+                else:
+                    log.warning(f'Unexpected file in matrix directory: {filename}')
+                os.rename(filename, self.translate_filename(filename))
 
     def prune(self, keep_frac: float) -> None:
         """
@@ -235,10 +253,12 @@ class MatrixPreparer:
         :param filename: name of un-gzipped, unprocessed file
         :param keep_cols: columns to keep.
         """
-        log.warning('Ignoring named columns')
         df = cls._read_tsv(filename, True)
-        # assert all(col in df.columns for col in keep_cols)
-        df = df[:1]
+        if all(col in df.columns for col in keep_cols):
+            df = df[keep_cols]
+        else:
+            log.warning('Ignoring named columns')
+            df = df.iloc[:, :2]
         cls._write_tsv(filename, df)
 
     @classmethod

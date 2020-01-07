@@ -263,3 +263,19 @@ class FreshMatrixProvider(MatrixProvider):
             return default
         else:
             return project[field]
+
+
+class LocalMatrixProvider(MatrixProvider):
+
+    def __init__(self, paths, **kwargs):
+        self.paths = paths
+        super().__init__(**kwargs)
+
+    def get_entity_ids(self) -> List[str]:
+        return self.paths
+
+    def obtain_matrix(self, entity_id: str) -> MatrixInfo:
+        return MatrixInfo(zip_path=entity_id,
+                          extract_path=remove_ext(entity_id, '.zip'),
+                          project_uuid=file_id(entity_id, '.zip'),
+                          source='local')
