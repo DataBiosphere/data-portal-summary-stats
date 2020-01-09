@@ -24,7 +24,7 @@ provider "aws" {
   assume_role {
     role_arn = "arn:aws:iam::${var.acc_number}:role/dcp-developer"
   }
-  region = "${var.aws_region}"
+  region =  var.aws_region
 }
 
 data "aws_caller_identity" "current"{}
@@ -35,16 +35,16 @@ data "aws_availability_zones" "available" {}
 
 // Virtual Private Cloud and subnets
 data "aws_vpc" "data-portal-summary-stats" {
-  id = "${var.dpss_vpc_id}"
+  id =  var.dpss_vpc_id
 }
 
 data "aws_subnet" "dpss-sn" {
-  vpc_id = "${data.aws_vpc.data-portal-summary-stats.id}"
+  vpc_id =  data.aws_vpc.data-portal-summary-stats.id
   cidr_block = "10.0.1.0/24"
 }
 
 resource "aws_ecs_cluster" "dpss-cluster"{
-  name = "${var.cluster_name}"
+  name =  var.cluster_name
 }
 
 locals {
@@ -127,19 +127,19 @@ DOC
 
 // Connect role to policy.
 resource "aws_iam_role_policy_attachment" "ecs-events-attach" {
-  policy_arn = "${aws_iam_policy.data-portal-summary-stats-ecs-events-policy.arn}"
-  role       = "${aws_iam_role.data-portal-summary-stats-ecs-events.id}"
+  policy_arn =  aws_iam_policy.data-portal-summary-stats-ecs-events-policy.arn
+  role       =  aws_iam_role.data-portal-summary-stats-ecs-events.id
 }
 
 resource "aws_iam_role_policy_attachment" "ecs-events-attach2" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-  role       = "${aws_iam_role.data-portal-summary-stats-ecs-events.id}"
+  role       =  aws_iam_role.data-portal-summary-stats-ecs-events.id
 }
 
 // This attachment is required to pull the container from ECR.
 resource "aws_iam_role_policy_attachment" "ecs-events-attach3" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceEventsRole"
-  role       = "${aws_iam_role.data-portal-summary-stats-ecs-events.id}"
+  role       =  aws_iam_role.data-portal-summary-stats-ecs-events.id
 }
 
 /*
@@ -147,7 +147,7 @@ Role and policies for the task performer.
 */
 resource "aws_iam_role" "data-portal-summary-stats-task-performer" {
   name = "data-portal-summary-stats-task-performer"
-  tags = "${local.common_tags}"
+  tags =  local.common_tags
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -234,19 +234,19 @@ EOF
 
 // Attached policies to role.
 resource "aws_iam_role_policy_attachment" "task-performer-attach" {
-  policy_arn = "${aws_iam_policy.data-portal-summary-stats-task-performer-policy.arn}"
-  role       = "${aws_iam_role.data-portal-summary-stats-task-performer.id}"
+  policy_arn =  aws_iam_policy.data-portal-summary-stats-task-performer-policy.arn
+  role       =  aws_iam_role.data-portal-summary-stats-task-performer.id
 }
 
 resource "aws_ecs_task_definition" "dpss_ecs_task_definition" {
   family                   = "${var.app_name}-${var.dpss_deployment_stage}"
-  execution_role_arn       = "${aws_iam_role.data-portal-summary-stats-ecs-events.arn}"
-  task_role_arn            = "${aws_iam_role.data-portal-summary-stats-task-performer.arn}"
+  execution_role_arn       =  aws_iam_role.data-portal-summary-stats-ecs-events.arn
+  task_role_arn            =  aws_iam_role.data-portal-summary-stats-task-performer.arn
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.dpss_task_cpu
   memory                   = var.dpss_task_memory
-  tags                     = "${local.common_tags}"
+  tags                     =  local.common_tags
 
   container_definitions    = <<DEFINITION
 [
@@ -278,25 +278,25 @@ DEFINITION
 resource "aws_cloudwatch_event_rule" "dpss-scheduler" {
   name                = "dpss-trigger-${var.dpss_deployment_stage}"
   description         = "Schedule to run data-portal-summary-stats"
-  tags                = "${local.common_tags}"
+  tags                =  local.common_tags
   schedule_expression = "cron(1/2 * * * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "scheduled_task" {
   target_id = "run-scheduled-dpss-task-every-24h"
-  arn       = "${aws_ecs_cluster.dpss-cluster.arn}"
-  rule      = "${aws_cloudwatch_event_rule.dpss-scheduler.name}"
-  role_arn  = "${aws_iam_role.data-portal-summary-stats-ecs-events.arn}"
+  arn       =  aws_ecs_cluster.dpss-cluster.arn
+  rule      =  aws_cloudwatch_event_rule.dpss-scheduler.name
+  role_arn  =  aws_iam_role.data-portal-summary-stats-ecs-events.arn
 
   ecs_target {
       task_count          = 1
-      task_definition_arn = "${aws_ecs_task_definition.dpss_ecs_task_definition.arn}"
+      task_definition_arn =  aws_ecs_task_definition.dpss_ecs_task_definition.arn
       launch_type         = "FARGATE"
       platform_version    = "LATEST"
 
       network_configuration {
         assign_public_ip  = true
-        subnets           = "${data.aws_subnet.dpss-sn.*.id}"
+        subnets           =  data.aws_subnet.dpss-sn.*.id
         security_groups   = ["${var.dpss_security_group_id}"]
       }
   }
