@@ -68,8 +68,8 @@ def main():
                 nested_mtx_infos = MatrixPreparer(mtx_info).unzip()
                 for nmi in nested_mtx_infos:
                     MatrixPreparer(nmi).preprocess()
-            except RuntimeError as e:
-                log.error(f'Matrix preparation failed: {e}')
+            except Exception as e:
+                log.error(f'Matrix preparation failed: {repr(e)}', exc_info=True)
                 continue
 
             log.info(f'Generating stats for {mtx_info.extract_path}')
@@ -78,9 +78,13 @@ def main():
                 mss = MatrixSummaryStats(nested_mtx_infos)
                 mss.load_data()
                 mss.create_images()
+
+                if not mtx_info.lib_con_approaches:
+                    mtx_info.lib_con_approaches = frozenset(['SS2'])
+
                 s3.upload_figures(mtx_info)
-            except RuntimeError as e:
-                log.error(f'Matrix stats generation failed: {e}')
+            except Exception as e:
+                log.error(f'Matrix stats generation failed: {repr(e)}', exc_info=True)
                 continue
 
             # This logic was in Krause's code, no idea why

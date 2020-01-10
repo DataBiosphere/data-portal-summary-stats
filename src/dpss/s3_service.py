@@ -26,10 +26,19 @@ class S3Service:
             'figures': config.s3_figures_prefix
         }
 
-    def list_bucket(self, target: str) -> List[str]:
+    def list_bucket(self, target: str, sort: str = None) -> List[str]:
         response = self.client.list_objects_v2(Bucket=self.bucket_names[target],
                                                Prefix=self.key_prefixes[target])
-        return [obj['Key'] for obj in response.get('Contents', [])]
+        keys = [obj['Key'] for obj in response.get('Contents', [])]
+        if sort is None:
+            return keys
+        elif sort == 'size':
+            def sizer(key):
+                return self.client.head_object(Bucket=self.bucket_names[target], Key=key)['ContentLength']
+            keys.sort(key=sizer)
+            return keys
+        else:
+            raise ValueError(f'Unknown sort: {sort}')
 
     def download(self, target: str, filename: str) -> None:
         self.client.download_file(Bucket=self.bucket_names[target],

@@ -78,15 +78,13 @@ class MatrixPreparer:
             zipfile.extractall(self.info.extract_path)
         os.remove(self.info.zip_path)
 
-        # Fake out additional directory level that currently isn't there
-        os.rename(self.info.extract_path, 'fake_nest')
-        os.mkdir(self.info.extract_path)
-        os.rename('fake_nest', os.path.join(self.info.extract_path, 'fake_nest'))
-
         new_infos = []
 
         with DirectoryChange(self.info.extract_path):
             for mtx_dir in os.listdir('.'):
+                if not os.path.isdir(mtx_dir):
+                    log.info(f'Skipping non-matrix entry {mtx_dir}')
+                    continue
                 with DirectoryChange(mtx_dir):
                     for gzfilename in os.listdir('.'):
                         with gzip.open(gzfilename, 'rb') as gzfile:
@@ -109,14 +107,40 @@ class MatrixPreparer:
         Extract gzip files and transform for ScanPy compatibility.
         """
         with DirectoryChange(self.info.extract_path):
-            for filekey, filename in self.hca_filenames.items():
-                log.info(f'Processing file {filename}')
-                if filename.endswith('.tsv'):
-                    self._preprocess_tsv(filename, self.scanpy_tsv_columns[filekey])
-                elif filename.endswith('.mtx'):
-                    self._preprocess_mtx(filename)
-                else:
-                    log.warning(f'Unexpected file in matrix directory: {filename}')
+
+            header, mtx = self._read_matrixmarket(self.hca_filenames['matrix'])
+            mtx.iloc[:, 2] = np.rint(mtx.iloc[:, 2]).astype(np.int32)
+            self._write_matrixmarket(self.hca_filenames['matrix'], header, mtx)
+
+            rewrite = False
+
+            genes = self._read_tsv(self.hca_filenames['genes'], header=False)
+            genes = genes.applymap(str)
+
+            if genes.shape[0] == mtx.iloc[0, 0] + 1:
+                # header
+                rewrite = True
+                genes = genes.iloc[1:, :]
+
+            if genes.shape[1] < 2:
+                genes[1] = genes.iloc[:, 0]
+                rewrite = True
+
+            if rewrite:
+                self._write_tsv(self.hca_filenames['genes'], genes)
+
+            rewrite = False
+
+            barcodes = self._read_tsv(self.hca_filenames['barcodes'], header=False)
+            if barcodes.shape[0] == mtx.iloc[0, 1] + 1:
+                # header
+                rewrite = True
+                barcodes = barcodes.iloc[1:, :]
+
+            if rewrite:
+                self._write_tsv(self.hca_filenames['barcodes'], barcodes)
+
+            for filename in self.hca_filenames.values():
                 os.rename(filename, self.translate_filename(filename))
 
     def prune(self, keep_frac: float) -> None:
