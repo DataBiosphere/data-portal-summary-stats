@@ -2,6 +2,10 @@ import logging
 import os
 from typing import (
     List,
+    Dict,
+    Iterable,
+    Any,
+    Union,
 )
 
 import boto3
@@ -26,19 +30,22 @@ class S3Service:
             'figures': config.s3_figures_prefix
         }
 
-    def list_bucket(self, target: str, sort: str = None) -> List[str]:
+    def sort_by_size(self, target: str, keys: Iterable[str]) -> List[str]:
+        bucket = self.bucket_names[target]
+        return sorted(keys, key=lambda k: self.client.head_object(Bucket=bucket, Key=k)['ContentLength'])
+
+    def list_bucket(self, target: str, map_fields: Union[str, Iterable[str]]) -> Dict[str, Any]:
         response = self.client.list_objects_v2(Bucket=self.bucket_names[target],
                                                Prefix=self.key_prefixes[target])
-        keys = [obj['Key'] for obj in response.get('Contents', [])]
-        if sort is None:
-            return keys
-        elif sort == 'size':
-            def sizer(key):
-                return self.client.head_object(Bucket=self.bucket_names[target], Key=key)['ContentLength']
-            keys.sort(key=sizer)
-            return keys
-        else:
-            raise ValueError(f'Unknown sort: {sort}')
+        return {
+            obj['Key']: (
+                obj[map_fields]
+                if isinstance(map_fields, str) else
+                {field: obj[field] for field in map_fields}
+            )
+            for obj
+            in response.get('Contents', [])
+        }
 
     def download(self, target: str, filename: str) -> None:
         self.client.download_file(Bucket=self.bucket_names[target],
@@ -64,3 +71,6 @@ class S3Service:
                                         'ContentDisposition': 'inline',
                                         'ContentType': 'image/png'
                                     })
+
+
+s3service = S3Service()

@@ -76,7 +76,7 @@ class MatrixPreparer:
 
         with ZipFile(self.info.zip_path) as zipfile:
             zipfile.extractall(self.info.extract_path)
-        os.remove(self.info.zip_path)
+#        os.remove(self.info.zip_path)
 
         new_infos = []
 

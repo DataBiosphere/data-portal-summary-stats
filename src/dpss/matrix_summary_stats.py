@@ -1,13 +1,10 @@
 import os
 from typing import Iterable
 
-from more_itertools import one
-import pandas as pd
 import scanpy as sc
 import numpy as np
 import logging
 import matplotlib
-import warnings
 
 from dpss.matrix_info import MatrixInfo
 import matplotlib.pyplot as plt
@@ -56,8 +53,12 @@ class MatrixSummaryStats:
                 var_names='gene_ids',
                 cache=False
             )
+
+            # some files use numbers as ids which causes following steps to fail
             adata.var_names = adata.var_names.map(str)
+            adata.obs_names = adata.obs_names.map(str)
             adata.var_names_make_unique()
+            adata.obs_names_make_unique()
 
             # Not actually doing any filtering at the moment,
             # but need these function calls to fill in vars
@@ -85,7 +86,7 @@ class MatrixSummaryStats:
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{name}.{self.figure_format}')
-        plt.close(fig=fig)
+        plt.close(fig)
 
     def create_images(self) -> None:
         log.info(f'Figures saved in {self.figure_format} format.')
