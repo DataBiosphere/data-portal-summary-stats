@@ -28,6 +28,7 @@ from dpss.utils import (
     convert_size,
     file_id,
     remove_ext,
+    load_external_module,
 )
 from more_itertools import (
     one,
@@ -311,13 +312,13 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
     def __init__(self):
         self.projects_dir = config.local_projects_path.resolve()
         try:
-            from util import get_target_project_dirs
+            load_project_util = load_external_module('util', '/home/ubuntu/load-project/util.py')
         except ImportError:
             log.info(f'Looking for local projects in {self.projects_dir}')
             project_dirs = [p for p in self.projects_dir.iterdir() if not p.is_symlink()]
         else:
             log.info(f'Using skunkworks accessions')
-            project_dirs = get_target_project_dirs(root_dir=self.projects_dir, uuids=True)
+            project_dirs = load_project_util.get_target_project_dirs(root_dir=self.projects_dir, uuids=True)
 
         self.matrix_mtimes = {p.name: p.stat().st_mtime for p in project_dirs}
         self.matrix_uuids = list(self.matrix_mtimes.keys())
