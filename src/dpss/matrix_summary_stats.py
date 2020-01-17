@@ -86,7 +86,7 @@ class MatrixSummaryStats:
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{name}.{self.figure_format}')
-        plt.close(fig)
+        plt.close('all')
 
     def create_images(self) -> None:
         log.info(f'Figures saved in {self.figure_format} format.')

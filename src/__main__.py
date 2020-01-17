@@ -35,9 +35,8 @@ def main():
 
     try:
         provider = matrix_provider.get_provider()
-    except EnvironmentError:
-        log.error(f'Unrecognized matrix source: {config.matrix_source} '
-                  f'(should be one of {", ".join(config.matrix_provider_classes.keys())}')
+    except RuntimeError:
+        log.error(f'Unrecognized matrix source: {config.matrix_source}')
         sys.exit(1)
 
     iter_matrices = iter(provider)
@@ -69,6 +68,7 @@ def main():
                 mss.load_data()
                 mss.create_images()
 
+                # FIXME https://github.com/DailyDreaming/load-project/issues/21
                 if not mtx_info.lib_con_approaches:
                     mtx_info.lib_con_approaches = frozenset(['SS2'])
 

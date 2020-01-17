@@ -101,11 +101,11 @@ class IdempotentMatrixProvider(MatrixProvider, ABC):
         except KeyError:
             return True
         else:
-            oudated = matrix_mtime > figure_mtime
-            if not oudated:
+            outdated = matrix_mtime > figure_mtime
+            if not outdated:
                 log.info(f'Matrix {entity_id} is up-to-date; '
                          f'matrix modified {matrix_mtime}, oldest figure uploaded {figure_mtime}')
-            return oudated
+            return outdated
 
     def get_figure_modification_times(self) -> Dict[str, datetime]:
         objects = s3service.list_bucket('figures', map_fields='LastModified')
@@ -123,10 +123,13 @@ class CannedMatrixProvider(IdempotentMatrixProvider):
 
     def __init__(self):
         objects = s3service.list_bucket('matrices', map_fields='LastModified')
-        matrix_keys, mtimes = zip(*[(k, v) for k, v in objects.items() if k.endswith(self.mtx_ext)])
-        ordered_matrix_keys = s3service.sort_by_size('matrices', matrix_keys)
-        self.matrix_mtimes = mtimes
-        self.matrix_uuids = [file_id(key, self.mtx_ext) for key in ordered_matrix_keys]
+        ordered_matrix_keys = s3service.sort_by_size(
+            'matrices',
+            (k for k in objects.keys() if k.endswith(self.mtx_ext))
+        )
+        uuids = {key: file_id(key, self.mtx_ext) for key in ordered_matrix_keys}
+        self.matrix_uuids = [uuids[key] for key in ordered_matrix_keys]
+        self.matrix_mtimes = {uuid: objects[key] for key, uuid in uuids.items()}
         super().__init__()
 
     def get_entity_ids(self) -> List[str]:
@@ -313,14 +316,21 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
         self.projects_dir = config.local_projects_path.resolve()
         try:
             load_project_util = load_external_module('util', '/home/ubuntu/load-project/util.py')
-        except ImportError:
+        except FileNotFoundError:
             log.info(f'Looking for local projects in {self.projects_dir}')
             project_dirs = [p for p in self.projects_dir.iterdir() if not p.is_symlink()]
         else:
             log.info(f'Using skunkworks accessions')
             project_dirs = load_project_util.get_target_project_dirs(root_dir=self.projects_dir, uuids=True)
 
-        self.matrix_mtimes = {p.name: p.stat().st_mtime for p in project_dirs}
+        self.matrix_mtimes = {
+            p.name: datetime.fromtimestamp(
+                p.stat().st_mtime,
+                tz=datetime.now().astimezone().tzinfo
+            )
+            for p
+            in project_dirs
+        }
         self.matrix_uuids = list(self.matrix_mtimes.keys())
 
         super().__init__()
@@ -329,7 +339,7 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
         return self.matrix_uuids
 
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
-        return MatrixInfo(zip_path=self.projects_dir / entity_id / 'matrix.mtx.zip',
+        return MatrixInfo(zip_path=self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip',
                           extract_path=entity_id,
                           project_uuid=entity_id,
                           source=self.SOURCE_NAME)
@@ -350,6 +360,6 @@ def get_provider() -> MatrixProvider:
         if provider_type.SOURCE_NAME == config.matrix_source:
             break
     else:
-        raise EnvironmentError('Provided matrix source does not match any implementation')
+        raise RuntimeError('Provided matrix source does not match any implementation')
 
     return provider_type()
