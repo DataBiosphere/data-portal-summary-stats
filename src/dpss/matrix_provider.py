@@ -2,6 +2,7 @@ from abc import (
     ABC,
     abstractmethod,
 )
+from datetime import datetime
 import logging
 import os
 import shutil
@@ -15,7 +16,6 @@ from typing import (
 )
 import urllib.parse
 
-from param import Path
 import requests
 import pandas as pd
 
@@ -59,6 +59,13 @@ class MatrixProvider(ABC):
         """
         raise NotImplementedError
 
+    def filter_entity_id(self, entity_id: str) -> bool:
+        if entity_id in self.blacklist:
+            log.info(f'Matrix {entity_id} is blacklisted')
+            return False
+        else:
+            return True
+
     def __iter__(self):
         """
         Download matrices and yield info objects.
@@ -66,44 +73,64 @@ class MatrixProvider(ABC):
         entity_ids = self.get_entity_ids()
         log.info(f'Found {len(entity_ids)} target entities, {len(self.blacklist)} of which may be blacklisted.')
         for entity_id in entity_ids:
-            if entity_id in self.blacklist:
-                log.info(f'Skipping blacklisted matrix {entity_id}')
-            else:
+            if self.filter_entity_id(entity_id):
                 yield self.obtain_matrix(entity_id)
 
 
-class CannedMatrixProvider(MatrixProvider):
-    TARGET_NAME = 'canned'
+class IdempotentMatrixProvider(MatrixProvider, ABC):
+
+    def __init__(self):
+        self.figure_mtimes, self.matrix_mtimes = (None, None) \
+            if config.ignore_mtime else \
+            (self.get_figure_modification_times(), self.get_matrix_modifications_times())
+        super().__init__()
+
+    @abstractmethod
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        raise NotImplementedError
+
+    def filter_entity_id(self, entity_id: str) -> bool:
+        not_blacklisted = super().filter_entity_id(entity_id)
+        if not_blacklisted is False or config.ignore_mtime:
+            return not_blacklisted
+
+        matrix_mtime = self.matrix_mtimes[entity_id]
+        try:
+            figure_mtime = self.figure_mtimes[entity_id]
+        except KeyError:
+            return True
+        else:
+            oudated = matrix_mtime > figure_mtime
+            if not oudated:
+                log.info(f'Matrix {entity_id} is up-to-date; '
+                         f'matrix modified {matrix_mtime}, oldest figure uploaded {figure_mtime}')
+            return oudated
+
+    def get_figure_modification_times(self) -> Dict[str, datetime]:
+        objects = s3service.list_bucket('figures', map_fields='LastModified')
+        figures = {k: v for k, v in objects.items() if k.endswith('.' + MatrixSummaryStats.figure_format)}
+        df = pd.DataFrame(figures.items(), columns=['Key', 'LastModified'])
+        df['uuid'] = df['Key'].map(lambda k: k.split('/')[2])
+
+        return {uuid: group['LastModified'].min() for uuid, group in df.groupby('uuid')}
+
+
+class CannedMatrixProvider(IdempotentMatrixProvider):
+    SOURCE_NAME = 'canned'
 
     mtx_ext = '.mtx.zip'
 
+    def __init__(self):
+        objects = s3service.list_bucket('matrices', map_fields='LastModified')
+        matrix_keys, mtimes = zip(*[(k, v) for k, v in objects.items() if k.endswith(self.mtx_ext)])
+        ordered_matrix_keys = s3service.sort_by_size('matrices', matrix_keys)
+        self.matrix_mtimes = mtimes
+        self.matrix_uuids = [file_id(key, self.mtx_ext) for key in ordered_matrix_keys]
+        super().__init__()
+
     def get_entity_ids(self) -> List[str]:
         """List matrix objects in S3 bucket."""
-
-        objects = s3service.list_bucket('matrices', map_fields='LastModified')
-        matrices = {k: v for k, v in objects.items() if k.endswith(self.mtx_ext)}
-        ordered_matrix_keys = s3service.sort_by_size('matrices', matrices.keys())
-        ordered_matrix_uuids = [file_id(key, self.mtx_ext) for key in ordered_matrix_keys]
-
-        if not config.ignore_mtime:
-            matrix_mtimes = dict(zip(ordered_matrix_uuids, [matrices[k] for k in ordered_matrix_keys]))
-            objects = s3service.list_bucket('figures', map_fields='LastModified')
-            figures = {k: v for k, v in objects.items() if k.endswith('.' + MatrixSummaryStats.figure_format)}
-            df = pd.DataFrame(figures.items(), columns=['Key', 'LastModified'])
-            df['uuid'] = df['Key'].map(lambda k: k.split('/')[2])
-            for uuid, group in df.groupby('uuid'):
-                oldest_figure = group['LastModified'].min()
-                try:
-                    matrix_mtime = matrix_mtimes[uuid]
-                except KeyError:
-                    pass
-                else:
-                    if matrix_mtime < oldest_figure:
-                        log.info(f'Skipping matrix {uuid}; '
-                                 f'matrix modified {matrix_mtime}, oldest figure uploaded {oldest_figure}')
-                        ordered_matrix_uuids.remove(uuid)
-
-        return ordered_matrix_uuids
+        return self.matrix_uuids
 
     def obtain_matrix(self, matrix_id) -> MatrixInfo:
         """Download matrix from S3."""
@@ -113,14 +140,17 @@ class CannedMatrixProvider(MatrixProvider):
         assert filename in os.listdir('.')  # confirm successful download
         size = os.path.getsize(filename)  # in bytes
         log.info(f'Size of {filename}: {convert_size(size)}')
-        return MatrixInfo(source='canned',
+        return MatrixInfo(source=self.SOURCE_NAME,
                           project_uuid=matrix_id,
                           zip_path=filename,
                           extract_path=remove_ext(filename, '.zip'))
 
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        return self.matrix_mtimes
+
 
 class FreshMatrixProvider(MatrixProvider):
-    TARGET_NAME = 'fresh'
+    SOURCE_NAME = 'fresh'
 
     project_id_field = 'project.provenance.document_id'
     min_gene_count_field = 'genes_detected'
@@ -173,7 +203,7 @@ class FreshMatrixProvider(MatrixProvider):
         with open(matrix_zipfile_name, 'wb') as matrix_zipfile:
             shutil.copyfileobj(matrix_response.raw, matrix_zipfile)
 
-        return MatrixInfo(source='fresh',
+        return MatrixInfo(source=self.SOURCE_NAME,
                           project_uuid=project_id,
                           zip_path=matrix_zipfile_name,
                           extract_path=remove_ext(matrix_zipfile_name, '.zip'),
@@ -275,14 +305,11 @@ class FreshMatrixProvider(MatrixProvider):
             return project[field]
 
 
-class LocalMatrixProvider(MatrixProvider):
-    TARGET_NAME = 'local'
+class LocalMatrixProvider(IdempotentMatrixProvider):
+    SOURCE_NAME = 'local'
 
     def __init__(self):
         self.projects_dir = config.local_projects_path.resolve()
-        super().__init__()
-
-    def get_entity_ids(self) -> List[str]:
         try:
             from util import get_target_project_dirs
         except ImportError:
@@ -292,13 +319,22 @@ class LocalMatrixProvider(MatrixProvider):
             log.info(f'Using skunkworks accessions')
             project_dirs = get_target_project_dirs(root_dir=self.projects_dir, uuids=True)
 
-        return [p.name for p in project_dirs]
+        self.matrix_mtimes = {p.name: p.stat().st_mtime for p in project_dirs}
+        self.matrix_uuids = list(self.matrix_mtimes.keys())
+
+        super().__init__()
+
+    def get_entity_ids(self) -> List[str]:
+        return self.matrix_uuids
 
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
         return MatrixInfo(zip_path=self.projects_dir / entity_id / 'matrix.mtx.zip',
                           extract_path=entity_id,
                           project_uuid=entity_id,
-                          source='local')
+                          source=self.SOURCE_NAME)
+
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        return self.matrix_mtimes
 
 
 def get_provider() -> MatrixProvider:
@@ -306,11 +342,11 @@ def get_provider() -> MatrixProvider:
         g
         for g
         in globals().values()
-        if isinstance(g, type) and issubclass(g, MatrixProvider) and hasattr(g, 'TARGET_NAME')
+        if isinstance(g, type) and issubclass(g, MatrixProvider) and hasattr(g, 'SOURCE_NAME')
     ]
 
     for provider_type in provider_types:
-        if provider_type.TARGET_NAME == config.matrix_source:
+        if provider_type.SOURCE_NAME == config.matrix_source:
             break
     else:
         raise EnvironmentError('Provided matrix source does not match any implementation')
