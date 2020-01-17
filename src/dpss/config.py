@@ -1,4 +1,9 @@
 import os
+from pathlib import Path
+from typing import (
+    Set,
+    Optional,
+)
 
 
 class Config:
@@ -22,6 +27,15 @@ class Config:
     @property
     def matrix_source(self) -> str:
         return os.environ['DPSS_MATRIX_SOURCE']
+
+    @property
+    def target_uuids(self) -> Optional[Set[str]]:
+        var = os.environ['DPSS_TARGET_UUIDS']
+        return var.split(',') if var.strip() else None
+
+    @property
+    def ignore_mtime(self) -> bool:
+        return os.environ['DPSS_FORCE'] == '1'
 
     def stage_str(self, stage: str) -> str:
         return '' if stage == 'prod' else f'{stage}.'
@@ -49,6 +63,10 @@ class Config:
     @property
     def s3_figures_prefix(self) -> str:
         return 'project-assets/project-stats/'
+
+    @property
+    def local_projects_path(self) -> Path:
+        return Path('projects')
 
 
 config = Config()

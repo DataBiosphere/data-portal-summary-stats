@@ -1,5 +1,6 @@
 import os
 import math
+import importlib.util
 from tempfile import TemporaryDirectory
 from typing import (
     List,
@@ -90,3 +91,12 @@ class TemporaryDirectoryChange(DirectoryChange):
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
         super().__exit__(exc_type, exc_val, exc_tb)
         self.tmp.cleanup()
+
+
+def load_external_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+

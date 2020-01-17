@@ -2,8 +2,11 @@ from abc import (
     ABC,
     abstractmethod,
 )
+from datetime import datetime
+import json
 import logging
 import os
+import re
 import shutil
 import time
 from typing import (
@@ -13,14 +16,18 @@ from typing import (
     Optional,
     TypeVar,
 )
+import unicodedata
 import urllib.parse
 
+import dateutil.tz.tz as tz
 import requests
+import pandas as pd
 
 from dpss.config import config
 from dpss.exceptions import SkipMatrix
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
+from dpss.s3_service import s3service
 from dpss.utils import (
     convert_size,
     file_id,
@@ -35,12 +42,8 @@ log = logging.getLogger(__name__)
 
 class MatrixProvider(ABC):
 
-    def __init__(self, **kwargs):
-        """
-        :param kwargs:
-        Optional: blacklist: Iterable[str] - matrices to skip.
-        """
-        self.blacklist = frozenset(kwargs.get('blacklist', []))
+    def __init__(self):
+        self.blacklist = frozenset(s3service.get_blacklist() if config.use_blacklist else [])
 
     @abstractmethod
     def get_entity_ids(self) -> List[str]:
@@ -55,10 +58,19 @@ class MatrixProvider(ABC):
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
         """
         Acquire matrix file in cwd.
-        :param entity_i   d: identifier of the matrix source.
+        :param entity_id: identifier of the matrix source.
         :return: info of the downloaded matrix.
         """
         raise NotImplementedError
+
+    def filter_entity_id(self, entity_id: str) -> bool:
+        if entity_id in self.blacklist:
+            log.info(f'Matrix {entity_id} is blacklisted')
+            return False
+        elif config.target_uuids is not None:
+            return entity_id.split('.')[0] in config.target_uuids
+        else:
+            return True
 
     def __iter__(self):
         """
@@ -67,66 +79,107 @@ class MatrixProvider(ABC):
         entity_ids = self.get_entity_ids()
         log.info(f'Found {len(entity_ids)} target entities, {len(self.blacklist)} of which may be blacklisted.')
         for entity_id in entity_ids:
-            if entity_id in self.blacklist:
-                log.info(f'Skipping blacklisted matrix {entity_id}')
-            else:
+            if self.filter_entity_id(entity_id):
                 yield self.obtain_matrix(entity_id)
 
 
-class CannedMatrixProvider(MatrixProvider):
+class IdempotentMatrixProvider(MatrixProvider, ABC):
+
+    def __init__(self):
+        self.figure_mtimes, self.matrix_mtimes = (None, None) \
+            if config.ignore_mtime else \
+            (self.get_figure_modification_times(), self.get_matrix_modifications_times())
+        super().__init__()
+
+    @abstractmethod
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        raise NotImplementedError
+
+    def filter_entity_id(self, entity_id: str) -> bool:
+        not_blacklisted = super().filter_entity_id(entity_id)
+        if not_blacklisted is False or config.ignore_mtime:
+            return not_blacklisted
+
+        matrix_mtime = self.matrix_mtimes[entity_id]
+        try:
+            figure_mtime = self.figure_mtimes[entity_id]
+        except KeyError:
+            log.debug(f'Unable to determine figure modification time for {entity_id}')
+            return True
+        else:
+            outdated = matrix_mtime > figure_mtime
+            if outdated:
+                log.debug(f'Matrix {entity_id} requires update; ')
+            else:
+                log.info(f'Matrix {entity_id} is up-to-date; ')
+            log.debug(f'matrix modified {matrix_mtime}, oldest figure uploaded {figure_mtime}')
+            return outdated
+
+    def get_figure_modification_times(self) -> Dict[str, datetime]:
+        objects = s3service.list_bucket('figures', map_fields='LastModified')
+        figures = {
+            k: v
+            for k, v
+            in objects.items()
+            if any(
+                k.endswith(figure + '.' + MatrixSummaryStats.figure_format)
+                for figure
+                in MatrixSummaryStats.target_images()
+            )
+        }
+        df = pd.DataFrame(figures.items(), columns=['Key', 'LastModified'])
+        df['uuid'] = df['Key'].map(lambda k: k.split('/')[2].split('.')[0])
+
+        return {uuid: group['LastModified'].min() for uuid, group in df.groupby('uuid')}
+
+
+class CannedMatrixProvider(IdempotentMatrixProvider):
+    SOURCE_NAME = 'canned'
+
     mtx_ext = '.mtx.zip'
 
-    def __init__(self, **kwargs):
-        """
-        :param kwargs:
-        Required: s3_service: S3Service - AWS S3 service
-        Other params defined in superclass.
-        """
-        self.s3 = kwargs.pop('s3_service')
-        super().__init__(**kwargs)
+    def __init__(self):
+        objects = s3service.list_bucket('matrices', map_fields='LastModified')
+        ordered_matrix_keys = s3service.sort_by_size(
+            'matrices',
+            (k for k in objects.keys() if k.endswith(self.mtx_ext))
+        )
+        uuids = {key: file_id(key, self.mtx_ext) for key in ordered_matrix_keys}
+        self.matrix_uuids = [uuids[key] for key in ordered_matrix_keys]
+        self.matrix_mtimes = {uuid: objects[key] for key, uuid in uuids.items()}
+        super().__init__()
 
     def get_entity_ids(self) -> List[str]:
         """List matrix objects in S3 bucket."""
-
-       #return \
-        [
-            '86963b4f-1e8e-5691-9ba3-465f3a789428.homo_sapiens',  # 130473, pretty but not too dense
-            #'389ad9f9-4a14-5a3d-b971-45dc3baf95f1',  # 124472, densest, most cells
-            '39bfc05a-44ca-507a-bbf5-156bd35c5c74.homo_sapiens',  # 84465
-        ]
-
-        keys = self.s3.list_bucket('matrices', sort='size')
-        return [file_id(key, self.mtx_ext)
-                for key in keys
-                if key.endswith(self.mtx_ext)]
+        return self.matrix_uuids
 
     def obtain_matrix(self, matrix_id) -> MatrixInfo:
         """Download matrix from S3."""
         log.info(f'Downloading matrix {matrix_id} from S3.')
         filename = matrix_id + self.mtx_ext
-        self.s3.download('matrices', filename)
+        s3service.download('matrices', filename)
         assert filename in os.listdir('.')  # confirm successful download
         size = os.path.getsize(filename)  # in bytes
         log.info(f'Size of {filename}: {convert_size(size)}')
-        return MatrixInfo(source='canned',
+        return MatrixInfo(source=self.SOURCE_NAME,
                           project_uuid=matrix_id,
                           zip_path=filename,
                           extract_path=remove_ext(filename, '.zip'))
 
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        return self.matrix_mtimes
+
 
 class FreshMatrixProvider(MatrixProvider):
+    SOURCE_NAME = 'fresh'
+
     project_id_field = 'project.provenance.document_id'
     min_gene_count_field = 'genes_detected'
     mtx_feature = 'gene'
     mtx_format = 'mtx'
 
-    def __init__(self, **kwargs):
-        """
-        :param kwargs:
-        Other params defined in superclass.
-        """
-        super().__init__(**kwargs)
-
+    def __init__(self):
+        super().__init__()
         self.projects = self._get_project_info_from_azul()
 
     @property
@@ -171,7 +224,7 @@ class FreshMatrixProvider(MatrixProvider):
         with open(matrix_zipfile_name, 'wb') as matrix_zipfile:
             shutil.copyfileobj(matrix_response.raw, matrix_zipfile)
 
-        return MatrixInfo(source='fresh',
+        return MatrixInfo(source=self.SOURCE_NAME,
                           project_uuid=project_id,
                           zip_path=matrix_zipfile_name,
                           extract_path=remove_ext(matrix_zipfile_name, '.zip'),
@@ -273,17 +326,86 @@ class FreshMatrixProvider(MatrixProvider):
             return project[field]
 
 
-class LocalMatrixProvider(MatrixProvider):
+class LocalMatrixProvider(IdempotentMatrixProvider):
+    SOURCE_NAME = 'local'
 
-    def __init__(self, paths, **kwargs):
-        self.paths = paths
-        super().__init__(**kwargs)
+    def __init__(self):
+        self.projects_dir = config.local_projects_path.resolve()
+        project_dirs = [p for p in self.projects_dir.iterdir() if not p.is_symlink()]
+
+        self.matrix_mtimes = {}
+        matrix_sizes = {}
+        self.species = {}
+        self.matrix_uuids = []
+        for p in project_dirs:
+            self.matrix_uuids.append(p.name)
+            self.matrix_mtimes[p.name] = datetime.fromtimestamp(
+                p.stat().st_mtime,
+                tz=tz.tzlocal()
+            )
+            matrix_sizes[p.name] = p.stat().st_size
+            try:
+                species = self.find_species(p / 'bundle')
+            except Exception:
+                log.warning(f'Failed to load species data for project {p.name}', exc_info=True)
+            else:
+                self.species[p.name] = species
+
+        self.matrix_uuids.sort(key=matrix_sizes.get)
+        super().__init__()
 
     def get_entity_ids(self) -> List[str]:
-        return self.paths
+        return self.matrix_uuids
 
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
-        return MatrixInfo(zip_path=entity_id,
-                          extract_path=remove_ext(entity_id, '.zip'),
-                          project_uuid=file_id(entity_id, '.zip'),
-                          source='local')
+        species = self.species.get(entity_id)
+        asset_label = entity_id if species is None else f'{entity_id}.{species}'
+        return MatrixInfo(zip_path=self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip',
+                          extract_path=entity_id,
+                          project_uuid=asset_label,
+                          source=self.SOURCE_NAME)
+
+    def get_matrix_modifications_times(self) -> Dict[str, datetime]:
+        return self.matrix_mtimes
+
+    def filter_entity_id(self, entity_id: str) -> bool:
+        if not super().filter_entity_id(entity_id):
+            return False
+
+        path = self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip'
+        if not path.exists():
+            log.info(f'Matrix file does not exist for project {entity_id}')
+            return False
+
+        if entity_id not in self.species:
+            log.info(f'Species not found for project {entity_id}')
+            return False
+
+        return True
+
+    def find_species(self, bundle_dir):
+        # copied from /home/ubuntu/load-project/upload_assets.py
+        # raises a million and one exceptions
+        donor_path = bundle_dir / 'donor_organism_0.json'
+        with open(str(donor_path), 'r') as cs_json:
+            cell_suspension_json = json.load(cs_json)
+        species_name = cell_suspension_json['genus_species'][0]['text']
+        species_name = unicodedata.normalize('NFKD', species_name)
+        return re.sub(r'[^\w,.@%&-_()\\[\]/{}]', '_', species_name).strip().lower()
+
+
+def get_provider() -> MatrixProvider:
+    provider_types = [
+        g
+        for g
+        in globals().values()
+        if isinstance(g, type) and issubclass(g, MatrixProvider) and hasattr(g, 'SOURCE_NAME')
+    ]
+
+    for provider_type in provider_types:
+        if provider_type.SOURCE_NAME == config.matrix_source:
+            break
+    else:
+        raise RuntimeError('Provided matrix source does not match any implementation')
+
+    return provider_type()

@@ -1,13 +1,13 @@
 import os
-from typing import Iterable
+from typing import (
+    Iterable,
+    List,
+)
 
-from more_itertools import one
-import pandas as pd
 import scanpy as sc
 import numpy as np
 import logging
 import matplotlib
-import warnings
 
 from dpss.matrix_info import MatrixInfo
 import matplotlib.pyplot as plt
@@ -22,6 +22,8 @@ matplotlib.use('Agg')
 
 class MatrixSummaryStats:
     figure_format = 'png'
+    figure_width = 6
+    figure_dpi = 100
 
     # What to do for this parameter?
     min_cell_count = 10
@@ -53,11 +55,15 @@ class MatrixSummaryStats:
 
             adata = sc.read_10x_mtx(
                 info.extract_path,
-                var_names='gene_ids',
+                var_names='gene_symbols',
                 cache=False
             )
+
+            # some files use numbers as ids which causes following steps to fail
             adata.var_names = adata.var_names.map(str)
+            adata.obs_names = adata.obs_names.map(str)
             adata.var_names_make_unique()
+            adata.obs_names_make_unique()
 
             # Not actually doing any filtering at the moment,
             # but need these function calls to fill in vars
@@ -78,14 +84,20 @@ class MatrixSummaryStats:
 
             self.adatas.append(adata)
 
-    def _create_image(self, name, callback, *args, **kwargs):
-        fig, axs = plt.subplots(nrows=len(self.adatas), ncols=1, squeeze=False)
+    def _create_image(self, name, callback, height, *args, **kwargs):
+        fig, axs = plt.subplots(nrows=len(self.adatas), ncols=1, squeeze=False, figsize=(6, height))
         for ax, adata in zip(axs.flat, self.adatas):
             callback(adata, ax=ax, *args, **kwargs, save=False, show=False)
+            if ax.yaxis.get_label_text() == '0':
+                ax.set_ylabel('')
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
-        plt.savefig(f'figures/{name}.{self.figure_format}')
-        plt.close(fig=fig)
+        plt.savefig(f'figures/{name}.{self.figure_format}', dpi=self.figure_dpi)
+        plt.close('all')
+
+    @staticmethod
+    def target_images() -> List[str]:
+        return ['highest_expr_genes', 'violin', 'scatter_genes_vs_counts', 'scatter_percentMitoGenes_vs_count']
 
     def create_images(self) -> None:
         log.info(f'Figures saved in {self.figure_format} format.')
@@ -93,6 +105,7 @@ class MatrixSummaryStats:
         # 1. Figure: highest-expressing genes.
         self._create_image('highest_expr_genes',
                            sc.pl.highest_expr_genes,
+                           4.5,
                            n_top=20)
 
         # 2. Figure: Violin plots of cells, all genes, and percent of mitochondrial genes
@@ -103,6 +116,7 @@ class MatrixSummaryStats:
 
         self._create_image('violin',
                            sc.pl.violin,
+                           3,
                            keys,
                            stripplot=False,
                            multi_panel=True)
@@ -110,6 +124,7 @@ class MatrixSummaryStats:
         # 3. Figure: Number of genes over number of counts.
         self._create_image('scatter_genes_vs_counts',
                            sc.pl.scatter,
+                           4.5,
                            x='n_counts',
                            y='n_genes')
 
@@ -117,6 +132,6 @@ class MatrixSummaryStats:
             # 4. Figure: Percent mitochondrial genes over number of counts.
             self._create_image('scatter_percentMitoGenes_vs_count',
                                sc.pl.scatter,
+                               4.5,
                                x='n_counts',
                                y='percent_mito_genes')
-
