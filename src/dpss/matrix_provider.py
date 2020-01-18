@@ -3,8 +3,10 @@ from abc import (
     abstractmethod,
 )
 from datetime import datetime
+import json
 import logging
 import os
+import re
 import shutil
 import time
 from typing import (
@@ -14,6 +16,7 @@ from typing import (
     Optional,
     TypeVar,
 )
+import unicodedata
 import urllib.parse
 
 import requests
@@ -109,9 +112,18 @@ class IdempotentMatrixProvider(MatrixProvider, ABC):
 
     def get_figure_modification_times(self) -> Dict[str, datetime]:
         objects = s3service.list_bucket('figures', map_fields='LastModified')
-        figures = {k: v for k, v in objects.items() if k.endswith('.' + MatrixSummaryStats.figure_format)}
+        figures = {
+            k: v
+            for k, v
+            in objects.items()
+            if any(
+                k.endswith(figure + '.' + MatrixSummaryStats.figure_format)
+                for figure
+                in MatrixSummaryStats.target_images()
+            )
+        }
         df = pd.DataFrame(figures.items(), columns=['Key', 'LastModified'])
-        df['uuid'] = df['Key'].map(lambda k: k.split('/')[2])
+        df['uuid'] = df['Key'].map(lambda k: k.split('/')[2].split('.')[0])
 
         return {uuid: group['LastModified'].min() for uuid, group in df.groupby('uuid')}
 
@@ -316,7 +328,7 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
         self.projects_dir = config.local_projects_path.resolve()
         try:
             load_project_util = load_external_module('util', '/home/ubuntu/load-project/util.py')
-        except FileNotFoundError:
+        except (FileNotFoundError, ModuleNotFoundError):
             log.info(f'Looking for local projects in {self.projects_dir}')
             project_dirs = [p for p in self.projects_dir.iterdir() if not p.is_symlink()]
         else:
@@ -339,13 +351,29 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
         return self.matrix_uuids
 
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
+        species = self.find_species(self.projects_dir / entity_id / 'bundle')
+        asset_label = entity_id if species is None else f'{entity_id}.{species}'
         return MatrixInfo(zip_path=self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip',
                           extract_path=entity_id,
-                          project_uuid=entity_id,
+                          project_uuid=asset_label,
                           source=self.SOURCE_NAME)
 
     def get_matrix_modifications_times(self) -> Dict[str, datetime]:
         return self.matrix_mtimes
+
+    def find_species(self, bundle_dir):
+        # copied from /home/ubuntu/load-project/upload_assets.py
+        donor_path = bundle_dir / 'donor_organism_0.json'
+        try:
+            with open(str(donor_path), 'r') as cs_json:
+                cell_suspension_json = json.load(cs_json)
+                species_name = cell_suspension_json['genus_species'][0]['text']
+                species_name = unicodedata.normalize('NFKD', species_name)
+                return re.sub(r'[^\w,.@%&-_()\\[\]/{}]', '_', species_name).strip().lower()
+        except FileNotFoundError:
+            log.warning('Failed to load donor metadata', exc_info=True)
+            return None
+
 
 
 def get_provider() -> MatrixProvider:

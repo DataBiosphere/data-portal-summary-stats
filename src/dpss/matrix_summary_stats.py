@@ -1,5 +1,8 @@
 import os
-from typing import Iterable
+from typing import (
+    Iterable,
+    List,
+)
 
 import scanpy as sc
 import numpy as np
@@ -87,6 +90,10 @@ class MatrixSummaryStats:
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{name}.{self.figure_format}')
         plt.close('all')
+
+    @staticmethod
+    def target_images() -> List[str]:
+        return ['highest_expr_genes', 'violin', 'scatter_genes_vs_counts', 'scatter_percentMitoGenes_vs_count']
 
     def create_images(self) -> None:
         log.info(f'Figures saved in {self.figure_format} format.')
