@@ -31,7 +31,7 @@ class Config:
     @property
     def target_uuids(self) -> Optional[Set[str]]:
         var = os.environ['DPSS_TARGET_UUIDS']
-        return var.split(',') if var.strip() else None
+        return set(var.split(',')) if var.strip() else None
 
     @property
     def ignore_mtime(self) -> bool:
