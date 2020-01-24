@@ -84,15 +84,23 @@ class MatrixSummaryStats:
 
             self.adatas.append(adata)
 
-    def _create_image(self, name, callback, height, *args, **kwargs):
-        fig, axs = plt.subplots(nrows=len(self.adatas), ncols=1, squeeze=False, figsize=(6, height))
+    def _create_image(self, name, callback, *args, **kwargs):
+        fig, axs = plt.subplots(
+            nrows=len(self.adatas),
+            ncols=1,
+            squeeze=False,
+            figsize=(6, 4.5)
+        )
         for ax, adata in zip(axs.flat, self.adatas):
             callback(adata, ax=ax, *args, **kwargs, save=False, show=False)
             if ax.yaxis.get_label_text() == '0':
                 ax.set_ylabel('')
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
-        plt.savefig(f'figures/{name}.{self.figure_format}', dpi=self.figure_dpi)
+        plt.savefig(
+            f'figures/{name}.{self.figure_format}',
+            dpi=self.figure_dpi
+        )
         plt.close('all')
 
     @staticmethod
@@ -105,7 +113,6 @@ class MatrixSummaryStats:
         # 1. Figure: highest-expressing genes.
         self._create_image('highest_expr_genes',
                            sc.pl.highest_expr_genes,
-                           4.5,
                            n_top=20)
 
         # 2. Figure: Violin plots of cells, all genes, and percent of mitochondrial genes
@@ -114,17 +121,43 @@ class MatrixSummaryStats:
         if show_mito_genes:
             keys.append('percent_mito_genes')
 
-        self._create_image('violin',
-                           sc.pl.violin,
-                           3,
-                           keys,
-                           stripplot=False,
-                           multi_panel=True)
+        fig, axs = plt.subplots(
+            nrows=len(self.adatas),
+            ncols=len(keys),
+            squeeze=False,
+            figsize=(6, 3)
+        )
+        # can't use multi_panel because the FacetGrid will resize ignore the existing figure size
+        for ax_row, adata in zip(axs, self.adatas):
+            print(ax_row)
+            for ax, key in zip(ax_row, keys):
+                print(ax)
+                sc.pl.violin(
+                    adata,
+                    key,
+                    ax=ax,
+                    stripplot=False,
+                    save=False,
+                    show=False
+                )
+                ax.set_ylabel('')
+        plt.tight_layout()
+        plt.savefig(
+            f'figures/violin.{self.figure_format}',
+            dpi=self.figure_dpi
+        )
+        plt.close('all')
+
+        #        self._create_image('violin',
+        #                          sc.pl.violin,
+        #                           keys,
+        #                          stripplot=False,
+        #                         multi_panel=True,
+        #                     width=0.8*2/len(keys))
 
         # 3. Figure: Number of genes over number of counts.
         self._create_image('scatter_genes_vs_counts',
                            sc.pl.scatter,
-                           4.5,
                            x='n_counts',
                            y='n_genes')
 
@@ -132,6 +165,5 @@ class MatrixSummaryStats:
             # 4. Figure: Percent mitochondrial genes over number of counts.
             self._create_image('scatter_percentMitoGenes_vs_count',
                                sc.pl.scatter,
-                               4.5,
                                x='n_counts',
                                y='percent_mito_genes')
