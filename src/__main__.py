@@ -43,7 +43,7 @@ def main():
     while True:
         with TemporaryDirectoryChange() as tempdir:
             try:
-                mtx_info = next(iter_matrices)
+                download_mtx_info = next(iter_matrices)
             except StopIteration:
                 break
             except SkipMatrix as s:
@@ -51,34 +51,37 @@ def main():
                 continue
 
             log.info(f'Writing to temporary directory {tempdir}')
-            log.info(f'Processing matrix for project {mtx_info.project_uuid} ({mtx_info.source})')
+            log.info(f'Processing matrix for project {download_mtx_info.project_uuid} ({download_mtx_info.source})')
 
             try:
-                nested_mtx_infos = MatrixPreparer(mtx_info).unzip()
-                for nmi in nested_mtx_infos:
-                    MatrixPreparer(nmi).preprocess()
+                extract_mtx_infos = MatrixPreparer(download_mtx_info).unzip()
+                sep_mtx_infos = []
+                for mi in extract_mtx_infos:
+                    mp = MatrixPreparer(mi)
+                    mp.preprocess()
+                    sep_mtx_infos.extend(mp.separate())
             except Exception as e:
                 log.error(f'Matrix preparation failed: {repr(e)}', exc_info=True)
                 continue
 
-            log.info(f'Generating stats for {mtx_info.extract_path}')
+            log.info(f'Generating stats for {download_mtx_info.extract_path}')
 
             try:
-                mss = MatrixSummaryStats(nested_mtx_infos)
+                mss = MatrixSummaryStats(sep_mtx_infos)
                 mss.load_data()
                 mss.create_images()
 
                 # FIXME https://github.com/DailyDreaming/load-project/issues/21
-                if not mtx_info.lib_con_approaches:
-                    mtx_info.lib_con_approaches = frozenset(['SS2'])
+                if not download_mtx_info.lib_con_approaches:
+                    download_mtx_info.lib_con_approaches = frozenset(['SS2'])
 
-                s3service.upload_figures(mtx_info)
+                s3service.upload_figures(download_mtx_info)
             except Exception as e:
                 log.error(f'Matrix stats generation failed: {repr(e)}', exc_info=True)
                 continue
 
             # This logic was in Krause's code, no idea why
-            if mtx_info.source == 'fresh':
+            if download_mtx_info.source == 'fresh':
                 time.sleep(15)
     log.info('Finished.')
 

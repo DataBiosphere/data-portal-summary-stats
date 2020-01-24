@@ -1,5 +1,9 @@
 import os
 from pathlib import Path
+from typing import (
+    Set,
+    Optional,
+)
 
 
 class Config:
@@ -23,6 +27,11 @@ class Config:
     @property
     def matrix_source(self) -> str:
         return os.environ['DPSS_MATRIX_SOURCE']
+
+    @property
+    def target_uuids(self) -> Optional[Set[str]]:
+        var = os.environ['DPSS_TARGET_UUIDS']
+        return var.split(',') if var.strip() else None
 
     @property
     def ignore_mtime(self) -> bool:

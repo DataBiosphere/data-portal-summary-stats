@@ -1,7 +1,6 @@
 import gzip
 import logging
 import os
-from pathlib import Path
 import warnings
 
 from more_itertools import one
@@ -122,7 +121,10 @@ class MatrixPreparer:
                 rewrite = True
                 genes = genes.iloc[1:, :]
 
+            # scany needs both ids and symbols so if we lack one column we just
+            # duplicate the existing one
             if genes.shape[1] < 2:
+                log.info('Duplicating gene column')
                 genes[1] = genes.iloc[:, 0]
                 rewrite = True
 
@@ -131,11 +133,29 @@ class MatrixPreparer:
 
             rewrite = False
 
+            header = None
             barcodes = self._read_tsv(self.hca_filenames['barcodes'], header=False)
             if barcodes.shape[0] == mtx.iloc[0, 1] + 1:
                 # header
                 rewrite = True
+                header = barcodes.iloc[0, :]
                 barcodes = barcodes.iloc[1:, :]
+
+            # Keep LCA if we can identify it, otherwise drop all other columns
+            # to save memory when AnnData is loaded
+            if barcodes.shape[1] > 1:
+                rewrite = True
+                if header is None:
+                    log.info('No barcodes header, ignoring LCA')
+                    barcodes = barcodes.iloc[:, 0]
+                else:
+                    lca_index = list(header).index(self.lca_column)
+                    if lca_index == -1:
+                        log.info('Could not find LCA in barcodes header, ignoring')
+                        barcodes = barcodes.iloc[:, 0]
+                    else:
+                        log.info('Found LCA in barcodes header')
+                        barcodes = barcodes.iloc[:, [0, lca_index]]
 
             if rewrite:
                 self._write_tsv(self.hca_filenames['barcodes'], barcodes)
@@ -178,7 +198,11 @@ class MatrixPreparer:
         with DirectoryChange(self.info.extract_path):
             barcodes_file = self.scanpy_filenames['barcodes']
             barcodes = self._read_tsv(barcodes_file, False)
-            lib_con_data = barcodes.pop(barcodes.columns[1])
+            try:
+                lib_con_data = barcodes.pop(barcodes.columns[1])
+            except (IndexError, KeyError):
+                log.info('No LCA data for matrix; skipping separation')
+                return [self.info]
             self._write_tsv(barcodes_file, barcodes)
 
             found_lcas = frozenset(lib_con_data.map(MatrixSummaryStats.translate_lca))
@@ -189,7 +213,7 @@ class MatrixPreparer:
             elif found_lcas == self.info.lib_con_approaches:
                 log.info('All expected LCAs accounted for')
             elif found_lcas < self.info.lib_con_approaches:
-                log.info('Not all expected LCAS were found (filtered out?)')
+                log.info('Not all expected LCAS were found')
             else:
                 raise RuntimeError(f'Unexpected LCA(s) found: {found_lcas} (expected {self.info.lib_con_approaches})')
 
