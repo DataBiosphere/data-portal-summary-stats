@@ -30,12 +30,12 @@ class Config:
 
     @property
     def target_uuids(self) -> Optional[Set[str]]:
-        var = os.environ['DPSS_TARGET_UUIDS']
+        var = os.environ.get('DPSS_TARGET_UUIDS', '')
         return set(var.split(',')) if var.strip() else None
 
     @property
     def ignore_mtime(self) -> bool:
-        return os.environ['DPSS_FORCE'] == '1'
+        return os.environ.get('DPSS_FORCE') == '1'
 
     def stage_str(self, stage: str) -> str:
         return '' if stage == 'prod' else f'{stage}.'

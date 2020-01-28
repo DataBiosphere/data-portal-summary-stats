@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import shutil
 import time
@@ -86,9 +87,8 @@ class MatrixProvider(ABC):
 class IdempotentMatrixProvider(MatrixProvider, ABC):
 
     def __init__(self):
-        self.figure_mtimes, self.matrix_mtimes = (None, None) \
-            if config.ignore_mtime else \
-            (self.get_figure_modification_times(), self.get_matrix_modifications_times())
+        self.figure_mtimes = self.get_figure_modification_times()
+        self.matrix_mtimes = self.get_matrix_modifications_times()
         super().__init__()
 
     @abstractmethod
@@ -122,7 +122,7 @@ class IdempotentMatrixProvider(MatrixProvider, ABC):
             for k, v
             in objects.items()
             if any(
-                k.endswith(figure + '.' + MatrixSummaryStats.figure_format)
+                k.endswith(f'{figure}.{MatrixSummaryStats.figure_format}')
                 for figure
                 in MatrixSummaryStats.target_images()
             )
@@ -161,10 +161,12 @@ class CannedMatrixProvider(IdempotentMatrixProvider):
         assert filename in os.listdir('.')  # confirm successful download
         size = os.path.getsize(filename)  # in bytes
         log.info(f'Size of {filename}: {convert_size(size)}')
-        return MatrixInfo(source=self.SOURCE_NAME,
-                          project_uuid=matrix_id,
-                          zip_path=filename,
-                          extract_path=remove_ext(filename, '.zip'))
+        return MatrixInfo(
+            source=self.SOURCE_NAME,
+            project_uuid=matrix_id,
+            zip_path=filename,
+            extract_path=Path(remove_ext(filename, '.zip'))
+        )
 
     def get_matrix_modifications_times(self) -> Dict[str, datetime]:
         return self.matrix_mtimes
@@ -224,11 +226,13 @@ class FreshMatrixProvider(MatrixProvider):
         with open(matrix_zipfile_name, 'wb') as matrix_zipfile:
             shutil.copyfileobj(matrix_response.raw, matrix_zipfile)
 
-        return MatrixInfo(source=self.SOURCE_NAME,
-                          project_uuid=project_id,
-                          zip_path=matrix_zipfile_name,
-                          extract_path=remove_ext(matrix_zipfile_name, '.zip'),
-                          lib_con_approaches=lcas)
+        return MatrixInfo(
+            source=self.SOURCE_NAME,
+            project_uuid=project_id,
+            zip_path=Path(matrix_zipfile_name),
+            extract_path=Path(remove_ext(matrix_zipfile_name, '.zip')),
+            lib_con_approaches=lcas
+        )
 
     def _request_matrix(self, project_id: str) -> requests.models.Response:
 
@@ -236,14 +240,9 @@ class FreshMatrixProvider(MatrixProvider):
             'feature': self.mtx_feature,
             'format': self.mtx_format,
             'filter': {
-                'op': 'and',
-                'value': [
-                    {
-                        'op': '=',
-                        'value': project_id,
-                        'field': self.project_id_field
-                    }
-                ]
+                'op': '=',
+                'value': project_id,
+                'field': self.project_id_field
             }
         }
 
@@ -360,10 +359,12 @@ class LocalMatrixProvider(IdempotentMatrixProvider):
     def obtain_matrix(self, entity_id: str) -> MatrixInfo:
         species = self.species.get(entity_id)
         asset_label = entity_id if species is None else f'{entity_id}.{species}'
-        return MatrixInfo(zip_path=self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip',
-                          extract_path=entity_id,
-                          project_uuid=asset_label,
-                          source=self.SOURCE_NAME)
+        return MatrixInfo(
+            zip_path=self.projects_dir / entity_id / 'bundle' / 'matrix.mtx.zip',
+            extract_path=Path(entity_id),
+            project_uuid=asset_label,
+            source=self.SOURCE_NAME
+        )
 
     def get_matrix_modifications_times(self) -> Dict[str, datetime]:
         return self.matrix_mtimes
@@ -406,6 +407,7 @@ def get_provider() -> MatrixProvider:
         if provider_type.SOURCE_NAME == config.matrix_source:
             break
     else:
-        raise RuntimeError('Provided matrix source does not match any implementation')
+        raise RuntimeError(f'Provided matrix source {config.matrix_source} '
+                           'does not match any implementation')
 
     return provider_type()

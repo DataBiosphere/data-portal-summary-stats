@@ -84,17 +84,22 @@ class MatrixSummaryStats:
 
             self.adatas.append(adata)
 
-    def _create_image(self, name, callback, *args, **kwargs):
-        fig, axs = plt.subplots(
+    def _create_figure(self, ncols=1):
+        return plt.subplots(
             nrows=len(self.adatas),
-            ncols=1,
-            squeeze=False,
-            figsize=(6, 4.5)
+            ncols=ncols,
+            squeeze=False
         )
-        for ax, adata in zip(axs.flat, self.adatas):
+
+    def _plot(self, callback, figure, axes, *args, **kwargs):
+        for ax, adata in zip(axes.flat, self.adatas):
             callback(adata, ax=ax, *args, **kwargs, save=False, show=False)
             if ax.yaxis.get_label_text() == '0':
                 ax.set_ylabel('')
+        figure.set_size_inches(self.figure_width, figure.get_size_inches()[1])
+
+    def _save_image(self, name):
+        assert name in self.target_images()
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
         plt.savefig(
@@ -105,15 +110,24 @@ class MatrixSummaryStats:
 
     @staticmethod
     def target_images() -> List[str]:
-        return ['highest_expr_genes', 'violin', 'scatter_genes_vs_counts', 'scatter_percentMitoGenes_vs_count']
+        return [
+            'highest_expr_genes',
+            'violin',
+            'scatter_genes_vs_counts',
+            'scatter_percentMitoGenes_vs_count',
+        ]
 
     def create_images(self) -> None:
         log.info(f'Figures saved in {self.figure_format} format.')
 
         # 1. Figure: highest-expressing genes.
-        self._create_image('highest_expr_genes',
-                           sc.pl.highest_expr_genes,
-                           n_top=20)
+        fig, axes = self._create_figure()
+        self._plot(
+            sc.pl.highest_expr_genes,
+            fig, axes,
+            n_top=20
+        )
+        self._save_image('highest_expr_genes')
 
         # 2. Figure: Violin plots of cells, all genes, and percent of mitochondrial genes
         keys = ['n_counts', 'n_genes']
@@ -121,49 +135,36 @@ class MatrixSummaryStats:
         if show_mito_genes:
             keys.append('percent_mito_genes')
 
-        fig, axs = plt.subplots(
-            nrows=len(self.adatas),
-            ncols=len(keys),
-            squeeze=False,
-            figsize=(6, 3)
-        )
+        fig, axes = self._create_figure(len(keys))
         # can't use multi_panel because the FacetGrid will resize ignore the existing figure size
-        for ax_row, adata in zip(axs, self.adatas):
-            print(ax_row)
-            for ax, key in zip(ax_row, keys):
-                print(ax)
-                sc.pl.violin(
-                    adata,
-                    key,
-                    ax=ax,
-                    stripplot=False,
-                    save=False,
-                    show=False
-                )
+        for column, key in zip(axes.T, keys):
+            self._plot(
+                sc.pl.violin,
+                fig, column,
+                key,
+                stripplot=False,
+            )
+            for ax in axes.flat:
                 ax.set_ylabel('')
-        plt.tight_layout()
-        plt.savefig(
-            f'figures/violin.{self.figure_format}',
-            dpi=self.figure_dpi
-        )
-        plt.close('all')
-
-        #        self._create_image('violin',
-        #                          sc.pl.violin,
-        #                           keys,
-        #                          stripplot=False,
-        #                         multi_panel=True,
-        #                     width=0.8*2/len(keys))
+        self._save_image('violin')
 
         # 3. Figure: Number of genes over number of counts.
-        self._create_image('scatter_genes_vs_counts',
-                           sc.pl.scatter,
-                           x='n_counts',
-                           y='n_genes')
+        fig, axes = self._create_figure()
+        self._plot(
+            sc.pl.scatter,
+            fig, axes,
+            x='n_counts',
+            y='n_genes'
+        )
+        self._save_image('scatter_genes_vs_counts')
 
         if show_mito_genes:
             # 4. Figure: Percent mitochondrial genes over number of counts.
-            self._create_image('scatter_percentMitoGenes_vs_count',
-                               sc.pl.scatter,
-                               x='n_counts',
-                               y='percent_mito_genes')
+            fig, axes = self._create_figure()
+            self._plot(
+                sc.pl.scatter,
+                fig, axes,
+                x='n_counts',
+                y='percent_mito_genes'
+            )
+            self._save_image('scatter_percentMitoGenes_vs_count')

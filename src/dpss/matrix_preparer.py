@@ -1,7 +1,7 @@
 import gzip
 import logging
 import os
-import warnings
+from pathlib import Path
 
 from more_itertools import one
 import numpy as np
@@ -9,9 +9,10 @@ import pandas as pd
 import shutil
 from typing import (
     List,
-    Tuple,
     Callable,
     Union,
+    Optional,
+    Sequence,
 )
 from zipfile import ZipFile
 
@@ -19,149 +20,193 @@ from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
 from dpss.utils import (
     DirectoryChange,
-    remove_ext,
+    gunzip,
+    traverse_dirs,
 )
 
 log = logging.getLogger(__name__)
 
 
-class MatrixPreparer:
+class Mtx:
+
+    def __init__(self, path: str, **pd_kwargs):
+        self.path = path
+        with open(self.path) as f:
+            self.header = f.readline()
+            assert self.header.startswith('%')
+        # files sizes become the column names
+        self.data = pd.read_csv(path, comment='%', sep=' ', float_precision='round_trip', **pd_kwargs)
+        self.sizes = [int(float(c)) for c in self.data.columns]
+        self.data.columns = ['gene_idx', 'barcode_idx', 'count']
+
+    def __len__(self):
+        return self.sizes[2]
+
+    def process(self):
+        if np.issubdtype(self.data.dtypes[2], np.integer):
+            return False
+        else:
+            # Technically, this should always already be int data, some in the past
+            # this code has had to be adapted for processing other expression metrics,
+            # and other times integral data just has needless 0's after a needless
+            # decimal point.
+            self.data['count'] = np.rint(self.data['count']).astype(np.int32)
+            return True
+
+    def filter_entries(self, which_rows: Union[Sequence[int], Callable[[pd.Series], bool]]) -> None:
+        """
+        :param which_rows: predicate function or Series of integer indices.
+        """
+        if callable(which_rows):
+            keep_labels = self.data.apply(which_rows, axis=1)
+            self.data = self.data.drop(labels=np.flatnonzero(~keep_labels))
+        else:
+            self.data = self.data.iloc[which_rows, :]
+
+        self.data.reset_index(inplace=True)
+        self.sizes[2] = self.data.shape[0]
+
+    def write(self, path: Optional[str] = None, **pd_kwargs) -> None:
+        path = self.path if path is None else path
+        # ScanPy needs MatrixMarket header even though pandas can't read it
+        with open(path, 'w') as f:
+            f.write(self.header)
+            f.write(' '.join(map(str, self.sizes)) + '\n')
+        self.data.to_csv(path, index=False, header=False, sep=' ', mode='a', **pd_kwargs)
+
+
+class Tsv:
+
+    def __init__(self, path: str, header: bool, **pd_kwargs):
+        self.path = path
+        if not header:
+            pd_kwargs['header'] = None
+        self.data = pd.read_csv(self.path, index_col=None, sep='\t', **pd_kwargs)
+        self.header = None
+
+    def detect_header(self, expected_size) -> bool:
+        size = self.data.shape[0]
+        if size == expected_size:
+            return False
+        elif size == expected_size + 1:
+            self.header = self.data.iloc[0, :]
+            self.data = self.data.iloc[1:]
+            return True
+        else:
+            raise RuntimeError(f'Could not reconcile tsv file with {size} entries with expected size {expected_size}')
+
+    def write(self, path: Optional[str] = None, **pd_kwargs) -> None:
+        path = self.path if path is None else path
+        self.data.to_csv(path if path is None else path, index=False, header=False, sep='\t', **pd_kwargs)
+
+
+class GenesTsv(Tsv):
+
+    def process(self) -> bool:
+        if self.data.shape[1] == 1:
+            # scanpy needs both ids and symbols so if we lack one column we just
+            # duplicate the existing one
+            log.info('Duplicating gene column')
+            self.data = self.data[:, [0, 0]]
+            return True
+        else:
+            return False
+
+
+class BarcodesTsv(Tsv):
     lca_column = 'library_preparation_protocol.library_construction_method.ontology_label'
 
-    hca_zipped_filenames = {
-        'genes': 'genes.tsv.gz',
-        'barcodes': 'barcodes.tsv.gz',
-        'matrix': 'matrix.mtx.gz'
-    }
+    def process(self) -> bool:
+        # Keep LCA if we can identify it, otherwise drop all other columns
+        # to save memory when AnnData is loaded
+        if self.data.shape[1] == 1:
+            return False
+        else:
+            if self.header is None:
+                log.info('No barcodes header, ignoring LCA')
+                self.data = self.data.iloc[:, [0]]
+            else:
+                try:
+                    lca_index = list(self.header).index(self.lca_column)
+                except ValueError:
+                    log.info('Could not find LCA in barcodes header, ignoring')
+                    self.data = self.data.iloc[:, [0]]
+                else:
+                    log.info('Found LCA in barcodes header')
+                    self.data = self.data.iloc[:, [0, lca_index]]
+        return True
 
-    hca_filenames = {
-        'genes': 'genes.tsv',
-        'barcodes': 'barcodes.tsv',
-        'matrix': 'matrix.mtx'
-    }
 
-    scanpy_filenames = {
-        'genes': 'genes.tsv',
-        'barcodes': 'barcodes.tsv',
-        'matrix': 'matrix.mtx'
-    }
-
-    scanpy_tsv_columns = {
-        # library_method_column is included because it is needed for separation,
-        # not for scanpy
-        'barcodes': ['cellkey', lca_column],
-        'genes': ['featurekey', 'featurename']
-    }
-
-    @staticmethod
-    def translate_filename(fname):
-        if fname in ['cells.tsv', 'barcodes.tsv']:
-            return 'barcodes.tsv'
-        elif fname in ['genes.tsv', 'features.tsv']:
-            return 'genes.tsv'
-        elif fname == 'matrix.mtx':
-            return 'matrix.mtx'
-        raise ValueError(f'Couldn\'t understand filename {fname}')
+class MatrixPreparer:
 
     def __init__(self, mtx_info: MatrixInfo):
         self.info = mtx_info
 
-    def unzip(self) -> List[MatrixInfo]:
+    def unzip(self, remove_archive: bool = False) -> List[MatrixInfo]:
         """
         Extract files from top-level zip archive, uncompress .gz files, and
-        remove archive.
+        optionally remove archive.
         """
         log.info(f'Unzipping {self.info.zip_path}')
 
         with ZipFile(self.info.zip_path) as zipfile:
             zipfile.extractall(self.info.extract_path)
-#        os.remove(self.info.zip_path)
 
-        new_infos = []
+        if remove_archive:
+            os.remove(str(self.info.zip_path))
 
-        with DirectoryChange(self.info.extract_path):
-            for mtx_dir in os.listdir('.'):
-                if not os.path.isdir(mtx_dir):
-                    log.info(f'Skipping non-matrix entry {mtx_dir}')
-                    continue
-                with DirectoryChange(mtx_dir):
-                    for gzfilename in os.listdir('.'):
-                        with gzip.open(gzfilename, 'rb') as gzfile:
-                            filename = remove_ext(gzfilename, '.gz')
-                            with open(filename, 'wb') as outfile:
-                                shutil.copyfileobj(gzfile, outfile)
-                        os.remove(gzfilename)
-            new_infos.append(MatrixInfo(
+        def find_matrix(path: Path) -> Optional[Path]:
+            anchor_file = path / 'matrix.mtx.gz'
+            genes_file = path / 'genes.tsv.gz'
+            cells_file = path / 'cells.tsv.gz'
+            barcodes_file = path / 'barcodes.tsv.gz'
+            try:
+                gunzip(anchor_file)
+            except FileNotFoundError:
+                return
+            else:
+                gunzip(genes_file)
+                if cells_file.exists():
+                    os.rename(str(cells_file), str(barcodes_file))
+                gunzip(barcodes_file)
+                return path
+
+        return [
+            MatrixInfo(
                 zip_path=None,
-                extract_path=os.path.join(self.info.extract_path, mtx_dir),
+                extract_path=path,
                 source=self.info.source,
                 project_uuid=self.info.project_uuid,
                 lib_con_approaches=self.info.lib_con_approaches
-            ))
-
-        return new_infos
+            )
+            for path
+            in filter(None, map(find_matrix, traverse_dirs(self.info.extract_path)))
+        ]
 
     def preprocess(self):
         """
-        Extract gzip files and transform for ScanPy compatibility.
+        Transform tsv/mtx files for ScanPy compatibility.
         """
         with DirectoryChange(self.info.extract_path):
 
-            header, mtx = self._read_matrixmarket(self.hca_filenames['matrix'])
-            mtx.iloc[:, 2] = np.rint(mtx.iloc[:, 2]).astype(np.int32)
-            self._write_matrixmarket(self.hca_filenames['matrix'], header, mtx)
+            mtx = Mtx('matrix.mtx')
+            sizes = mtx.sizes
+            if mtx.process():
+                mtx.write()
 
-            rewrite = False
+            del mtx
 
-            genes = self._read_tsv(self.hca_filenames['genes'], header=False)
-            genes = genes.applymap(str)
+            genes = GenesTsv('genes.tsv', False)
+            if genes.detect_header(sizes[0]) | genes.process():
+                genes.write()
 
-            if genes.shape[0] == mtx.iloc[0, 0] + 1:
-                # header
-                rewrite = True
-                genes = genes.iloc[1:, :]
+            del genes
 
-            # scany needs both ids and symbols so if we lack one column we just
-            # duplicate the existing one
-            if genes.shape[1] < 2:
-                log.info('Duplicating gene column')
-                genes[1] = genes.iloc[:, 0]
-                rewrite = True
+            barcodes = BarcodesTsv('barcodes.tsv', False)
+            if barcodes.detect_header(sizes[1]) | barcodes.process():
+                barcodes.write()
 
-            if rewrite:
-                self._write_tsv(self.hca_filenames['genes'], genes)
-
-            rewrite = False
-
-            header = None
-            barcodes = self._read_tsv(self.hca_filenames['barcodes'], header=False)
-            if barcodes.shape[0] == mtx.iloc[0, 1] + 1:
-                # header
-                rewrite = True
-                header = barcodes.iloc[0, :]
-                barcodes = barcodes.iloc[1:, :]
-
-            # Keep LCA if we can identify it, otherwise drop all other columns
-            # to save memory when AnnData is loaded
-            if barcodes.shape[1] > 1:
-                rewrite = True
-                if header is None:
-                    log.info('No barcodes header, ignoring LCA')
-                    barcodes = barcodes.iloc[:, 0]
-                else:
-                    lca_index = list(header).index(self.lca_column)
-                    if lca_index == -1:
-                        log.info('Could not find LCA in barcodes header, ignoring')
-                        barcodes = barcodes.iloc[:, 0]
-                    else:
-                        log.info('Found LCA in barcodes header')
-                        barcodes = barcodes.iloc[:, [0, lca_index]]
-
-            if rewrite:
-                self._write_tsv(self.hca_filenames['barcodes'], barcodes)
-
-            for filename in self.hca_filenames.values():
-                os.rename(filename, self.translate_filename(filename))
+            del barcodes
 
     def prune(self, keep_frac: float) -> None:
         """
@@ -173,12 +218,16 @@ class MatrixPreparer:
         """
         if not (0 < keep_frac <= 1):
             raise ValueError(f'Invalid prune fraction: {keep_frac}')
-        mtx_path = os.path.join(self.info.extract_path, self.scanpy_filenames['matrix'])
-        header, mtx = self._read_matrixmarket(mtx_path)
-        entries = np.arange(1, mtx.index.size)
-        keep_rows = np.random.choice(entries, round(keep_frac * entries.size), replace=False)
-        mtx = self._filter_matrix_entries(mtx, pd.Series(keep_rows))
-        self._write_matrixmarket(mtx_path, header, mtx)
+        mtx_path = self.info.extract_path / 'matrix.mtx'
+        mtx = Mtx(str(mtx_path))
+        mtx.filter_entries(
+            np.random.choice(
+                np.arange(len(mtx)),
+                round(keep_frac * len(mtx)),
+                replace=False
+            )
+        )
+        mtx.write()
 
     def separate(self) -> List[MatrixInfo]:
         """
@@ -196,57 +245,61 @@ class MatrixPreparer:
         log.info('Separating by library construction approach...')
 
         with DirectoryChange(self.info.extract_path):
-            barcodes_file = self.scanpy_filenames['barcodes']
-            barcodes = self._read_tsv(barcodes_file, False)
+            barcodes = Tsv('barcodes.tsv', False)
             try:
-                lib_con_data = barcodes.pop(barcodes.columns[1])
+                lib_con_data = barcodes.data.pop(barcodes.data.columns[1])
             except (IndexError, KeyError):
                 log.info('No LCA data for matrix; skipping separation')
                 return [self.info]
-            self._write_tsv(barcodes_file, barcodes)
+            # remove LCA column to save memory during stats generation
+            barcodes.write()
 
             found_lcas = frozenset(lib_con_data.map(MatrixSummaryStats.translate_lca))
             assert len(found_lcas) > 0
 
             if not self.info.lib_con_approaches:
-                log.info('Filling empty LCA from file')
+                log.debug('Filling empty LCA from file')
             elif found_lcas == self.info.lib_con_approaches:
-                log.info('All expected LCAs accounted for')
+                log.debug('All expected LCAs accounted for')
             elif found_lcas < self.info.lib_con_approaches:
-                log.info('Not all expected LCAS were found')
+                log.warning('Not all expected LCAS were found')
             else:
                 raise RuntimeError(f'Unexpected LCA(s) found: {found_lcas} (expected {self.info.lib_con_approaches})')
 
             self.info.lib_con_approaches = found_lcas
 
             if len(self.info.lib_con_approaches) == 1:
-                log.info(f'Homogeneous LCA: {one(self.info.lib_con_approaches)}')
+                log.debug(f'Homogeneous LCA: {one(self.info.lib_con_approaches)}')
                 return [self.info]
             else:
                 for lca in self.info.lib_con_approaches:
                     log.info(f'Consolidating {lca} cells')
-                    os.mkdir(lca)
+                    lca_dir = Path(lca)
+                    lca_dir.mkdir()
 
                     def matrix_filter(entry):
                         barcode_lineno = entry[1]
                         entry_lca = lib_con_data.iloc[barcode_lineno - 1]
                         return entry_lca == lca
 
-                    with DirectoryChange(lca):
-                        for filekey, filename in self.scanpy_filenames.items():
-                            if filekey == 'matrix':
-                                header, mtx = self._read_matrixmarket(f'../{filename}')
-                                mtx = self._filter_matrix_entries(mtx, matrix_filter)
-                                self._write_matrixmarket(filename, header, mtx)
-                            else:
-                                os.symlink(f'../{filename}', filename)
+                    # TODO only read this once and copy data
+                    mtx = Mtx('matrix.mtx')
+                    mtx.filter_entries(matrix_filter)
+                    mtx.write(lca_dir / 'matrix.mtx')
+                    for filename in ['genes.tsv', 'barcodes.tsv']:
+                        (lca_dir / filename).symlink_to(f'../{filename}')
 
-                return [MatrixInfo(source=self.info.source,
-                                   project_uuid=self.info.project_uuid,
-                                   zip_path=None,
-                                   extract_path=os.path.join(self.info.extract_path, lca),
-                                   lib_con_approaches=frozenset({lca}))
-                        for lca in self.info.lib_con_approaches]
+                return [
+                    MatrixInfo(
+                        source=self.info.source,
+                        project_uuid=self.info.project_uuid,
+                        zip_path=None,
+                        extract_path=self.info.extract_path / lca,
+                        lib_con_approaches=frozenset({lca})
+                    )
+                    for lca
+                    in self.info.lib_con_approaches
+                ]
 
     def rezip(self, zip_path: str = None, remove_dir: bool = False) -> None:
         """
@@ -262,8 +315,8 @@ class MatrixPreparer:
 
         with ZipFile(self.info.zip_path, 'w') as zipfile:
             with DirectoryChange(self.info.extract_path):
-                for gzfilename, filename in zip(self.hca_zipped_filenames.values(),
-                                                self.hca_filenames.values()):
+                for filename in ['matrix.mtx', 'genes.tsv', 'barcodes.tsv']:
+                    gzfilename = f'{filename}.gz'
                     with open(filename, 'rb') as infile:
                         with gzip.open(gzfilename, 'wb') as gzfile:
                             shutil.copyfileobj(infile, gzfile)
@@ -272,80 +325,3 @@ class MatrixPreparer:
 
         if remove_dir:
             shutil.rmtree(self.info.extract_path)
-
-    @classmethod
-    def _filter_matrix_entries(cls,
-                               mtx: pd.DataFrame,
-                               which_rows: Union[pd.Series, Callable[[pd.Series], bool]]) -> pd.DataFrame:
-        """
-        Remove rows from a matrix-market format matrix file, leaving the row and
-        column files unchanged.
-        :param mtx: dataframe of matrix entries in matrix market format.
-        :param which_rows: predicate function or Series of integer indices.
-        :return: the modified matrix.
-        """
-        if callable(which_rows):
-            keep_labels = mtx.iloc[1:].apply(which_rows, axis=1)
-            mtx = mtx.drop(labels=1 + np.flatnonzero(~keep_labels))
-        else:
-            mtx = mtx.iloc[pd.concat([pd.Series(0), which_rows])]
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            # Pandas complains about this modification because it at this point
-            # `mtx` is a slice of of the original parameter and the following
-            # assignment will not propagate past the slice. Which is exactly
-            # what is intended here.
-            mtx.iloc[0, 2] = mtx.index.size - 1
-        return mtx
-
-    @classmethod
-    def _preprocess_tsv(cls,
-                        filename: str,
-                        keep_cols: List[str]) -> None:
-        """
-        :param filename: name of un-gzipped, unprocessed file
-        :param keep_cols: columns to keep.
-        """
-        df = cls._read_tsv(filename, True)
-        if all(col in df.columns for col in keep_cols):
-            df = df[keep_cols]
-        else:
-            log.warning('Ignoring named columns')
-            df = df.iloc[:, :2]
-        cls._write_tsv(filename, df)
-
-    @classmethod
-    def _preprocess_mtx(cls,
-                        filename: str) -> None:
-        # ScanPy requires gene expression to be int for some reason
-        # TODO Normalize?
-        header, df = cls._read_matrixmarket(filename)
-        df.iloc[:, 2] = np.rint(df.iloc[:, 2]).astype(int)
-        cls._write_matrixmarket(filename, header, df)
-
-    @classmethod
-    def _read_tsv(cls, path: str, header: bool, **pd_kwargs) -> pd.DataFrame:
-        if not header:
-            pd_kwargs['header'] = None
-        return pd.read_csv(path, index_col=None, sep='\t', **pd_kwargs)
-
-    @classmethod
-    def _write_tsv(cls, path: str, df: pd.DataFrame, **pd_kwargs) -> None:
-        df.to_csv(path, index=False, header=False, sep='\t', **pd_kwargs)
-
-    @classmethod
-    def _read_matrixmarket(cls, path: str, **pd_kwargs) -> Tuple[str, pd.DataFrame]:
-        with open(path) as f:
-            header = f.readline()
-        assert header.startswith('%')
-        # float_precision is needed here or gene expression accumulates rounding
-        # errors that cause rows to compare unequal
-        df = pd.read_csv(path, header=None, comment='%', sep=' ', float_precision='round_trip', **pd_kwargs)
-        return header, df
-
-    @classmethod
-    def _write_matrixmarket(cls, path: str, header: str, df: pd.DataFrame, **pd_kwargs) -> None:
-        # ScanPy needs MatrixMarket header even though pandas can't read it
-        with open(path, 'w') as f:
-            f.write(header)
-        df.to_csv(path, index=False, header=False, sep=' ', mode='a', **pd_kwargs)

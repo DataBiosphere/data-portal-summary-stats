@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import (
     Optional,
     FrozenSet,
@@ -11,8 +12,8 @@ from more_itertools import one
 class MatrixInfo:
     source: str
     project_uuid: str
-    zip_path: Optional[str]
-    extract_path: str
+    zip_path: Optional[Path]
+    extract_path: Path
     lib_con_approaches: FrozenSet[str] = frozenset()
 
     @property

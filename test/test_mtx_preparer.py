@@ -1,12 +1,17 @@
 import logging
 
-import os
 import unittest
 
 from more_itertools import one
+import numpy as np
 import scanpy as sc
 
-from dpss.matrix_preparer import MatrixPreparer
+from dpss.matrix_preparer import (
+    MatrixPreparer,
+    Mtx,
+    Tsv,
+)
+from dpss.utils import traverse_dirs
 from test.tempdir_test_case import (
     MockMatrixTestCase,
 )
@@ -25,51 +30,39 @@ class TestMatrixPreparer(MockMatrixTestCase):
         self.preparer = MatrixPreparer(self.info)
 
     def test_unzip(self):
+        self.assertFalse(self.info.extract_path.exists())
         self.preparer.unzip()
-
-        self.assertFalse(os.path.exists(self.info.zip_path))
-        self.assertEqual(set(os.listdir(self.info.extract_path)), set(MatrixPreparer.hca_filenames.values()))
+        self.assertTrue(self.preparer.info.extract_path.exists())
+        self.assertTrue(all(map(
+            lambda d: not any(f.name.endswith('.gz') for f in d.iterdir()),
+            traverse_dirs(self.preparer.info.extract_path)
+        )))
 
     def test_preprocess(self):
 
         self.preparer.unzip()
         self.preparer.preprocess()
-        self.assertEqual(set(os.listdir(self.info.extract_path)), set(MatrixPreparer.scanpy_filenames.values()))
-
-        for filekey in ['barcodes', 'genes']:
-            filename = os.path.join(self.info.extract_path, MatrixPreparer.scanpy_filenames[filekey])
-            df = self.preparer._read_tsv(filename, False)
-            #  Unfortunately Scanpy requires us to remove the headers so we lose
-            #  a lot of info that would be useful in verification
-            self.assertEqual(len(df.columns), len(MatrixPreparer.scanpy_tsv_columns[filekey]))
-
         test_scanpy_read(self.info.extract_path)
 
     def test_prune(self):
 
-        matrix_path = os.path.join(self.info.extract_path, MatrixPreparer.hca_filenames['matrix'])
+        matrix_path = self.info.extract_path / 'matrix.mtx'
 
         target_frac = 0.25
 
         self.preparer.unzip()
 
-        _, old_mat = self.preparer._read_matrixmarket(matrix_path)
+        old_mat = Mtx(str(matrix_path))
         self.preparer.prune(target_frac)
-        _, new_mat = self.preparer._read_matrixmarket(matrix_path)
+        new_mat = Mtx(str(matrix_path))
 
         # confirm new_mat is subset of old_mat
         # https://stackoverflow.com/a/49531052/1530508
-        # -1 for non-matching file size pseudo-headers
-        self.assertEqual(len(new_mat.merge(old_mat)), len(new_mat)-1)
+        self.assertEqual(len(new_mat.data.merge(old_mat.data)), len(new_mat))
 
-        old_entry_count = old_mat.index.size - 1
-        new_entry_count = new_mat.index.size - 1
-        observed_frac = new_entry_count / old_entry_count
-        frac_bounds = ((new_entry_count - 1) / old_entry_count, (new_entry_count + 1) / old_entry_count)
-
-        delta = lambda frac: abs(target_frac - frac)
-        for bound in frac_bounds:
-            self.assertLess(delta(observed_frac), delta(bound))
+        # confirm that len(new_mat) is as close as possible to target_frac * len(old_mat)
+        deltas = np.abs((len(new_mat) + np.array([-1, 0, 1])) / len(old_mat) - target_frac)
+        self.assertEqual(np.argmin(deltas), 1)
 
         self.preparer.preprocess()
         test_scanpy_read(self.info.extract_path)
@@ -94,26 +87,21 @@ class TestMatrixPreparer(MockMatrixTestCase):
 
         # introduce heterogeneity
         barcodes_path = f'{self.preparer.info.extract_path}/barcodes.tsv'
-        barcodes = self.preparer._read_tsv(barcodes_path, False)
-        barcodes.iloc[1:20, 1] = other_approach
-        self.preparer._write_tsv(barcodes_path, barcodes)
+        barcodes = Tsv(barcodes_path, False)
+        barcodes.data.iloc[1:20, 1] = other_approach
+        barcodes.write()
 
         sep_infos = self.preparer.separate()
 
-        observed_lcas = {i.lib_con_approaches for i in sep_infos}
-
-        self.assertEqual(observed_lcas, expected_lcas)
+        self.assertEqual({i.lib_con_approaches for i in sep_infos}, expected_lcas)
 
         for sep_info in sep_infos:
-            self.assertTrue(os.path.isdir(sep_info.extract_path))
-            self.assertEqual(sep_info.extract_path, os.path.join(self.info.extract_path, one(sep_info.lib_con_approaches)))
-            for filekey, filename in MatrixPreparer.scanpy_filenames.items():
-                filename = os.path.join(sep_info.extract_path, filename)
-                if filekey == 'matrix':
-                    self.assertTrue(os.path.isfile(filename))
-                    self.assertFalse(os.path.islink(filename))
-                else:
-                    self.assertTrue(os.path.islink(filename))
+            self.assertTrue(sep_info.extract_path.is_dir())
+            self.assertEqual(sep_info.extract_path, self.info.extract_path / one(sep_info.lib_con_approaches))
+            for file in ['matrix.mtx', 'genes.tsv', 'barcodes.tsv']:
+                path = sep_info.extract_path / file
+                self.assertTrue(path.exists())
+                self.assertTrue(path.is_symlink() ^ file.endswith('.mtx'))
             test_scanpy_read(sep_info.extract_path)
 
 
