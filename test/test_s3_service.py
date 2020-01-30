@@ -66,7 +66,7 @@ class TestS3Service(S3TestCase):
         self.assertEqual(blacklist, ['123', '456', '789'])
 
     def test_upload_figures(self):
-        figures_files = MatrixSummaryStats.target_images()
+        figures_files = MatrixSummaryStats.target_images().keys()
         figures_dir = 'figures'
         project_uuid = '123'
         lca = 'SS2'
@@ -75,15 +75,16 @@ class TestS3Service(S3TestCase):
             parent = Path(figures_dir)
             for file in figures_files:
                 (parent / file).touch()
-            s3service.upload_figures(
-                MatrixInfo(
-                    source='nonexistent',
-                    zip_path=None,
-                    extract_path=Path('does/not/exist'),
-                    project_uuid=project_uuid,
-                    lib_con_approaches=frozenset([lca])
+                s3service.upload_figure(
+                    MatrixInfo(
+                        source='nonexistent',
+                        zip_path=None,
+                        extract_path=Path('does/not/exist'),
+                        project_uuid=project_uuid,
+                        lib_con_approaches=frozenset([lca])
+                    ),
+                    file
                 )
-            )
             found_objects = set(s3service.list_bucket('figures'))
             expected_objects = {
                 f'{config.s3_figures_prefix}{project_uuid}/{lca}/{file}'

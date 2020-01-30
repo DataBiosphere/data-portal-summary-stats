@@ -24,7 +24,7 @@ class S3TestCase(unittest.TestCase):
                     'Objects': [
                         {'Key': obj['Key']}
                         for obj
-                        in s3service.client.list_objects_v2(Bucket=bucket)['Contents']
+                        in s3service.client.list_objects_v2(Bucket=bucket).get('Contents',[])
                     ]
                 }
             )

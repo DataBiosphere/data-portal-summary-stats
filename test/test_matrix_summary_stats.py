@@ -46,8 +46,10 @@ class TestMatrixSummaryStats(MockMatrixTestCase):
     def test_create_images(self):
         self.mss.create_images()
         fig_path = Path('figures')
-        for figure in MatrixSummaryStats.target_images():
-            self.assertTrue((fig_path / f'{figure}.{MatrixSummaryStats.figure_format}').is_file())
+        self.assertEqual(
+            {f'{fig}.{MatrixSummaryStats.figure_format}' for fig in MatrixSummaryStats.target_images()},
+            {p.name for p in fig_path.iterdir()}
+        )
 
 
 if __name__ == "__main__":

@@ -106,8 +106,8 @@ class GenesTsv(Tsv):
         if self.data.shape[1] == 1:
             # scanpy needs both ids and symbols so if we lack one column we just
             # duplicate the existing one
-            log.info('Duplicating gene column')
-            self.data = self.data[:, [0, 0]]
+            log.debug('Duplicating gene column')
+            self.data = self.data.iloc[:, [0, 0]]
             return True
         else:
             return False
@@ -123,16 +123,16 @@ class BarcodesTsv(Tsv):
             return False
         else:
             if self.header is None:
-                log.info('No barcodes header, ignoring LCA')
+                log.debug('No barcodes header, ignoring LCA')
                 self.data = self.data.iloc[:, [0]]
             else:
                 try:
                     lca_index = list(self.header).index(self.lca_column)
                 except ValueError:
-                    log.info('Could not find LCA in barcodes header, ignoring')
+                    log.debug('Could not find LCA in barcodes header, ignoring')
                     self.data = self.data.iloc[:, [0]]
                 else:
-                    log.info('Found LCA in barcodes header')
+                    log.debug('Found LCA in barcodes header')
                     self.data = self.data.iloc[:, [0, lca_index]]
         return True
 
@@ -147,8 +147,6 @@ class MatrixPreparer:
         Extract files from top-level zip archive, uncompress .gz files, and
         optionally remove archive.
         """
-        log.info(f'Unzipping {self.info.zip_path}')
-
         with ZipFile(self.info.zip_path) as zipfile:
             zipfile.extractall(self.info.extract_path)
 
@@ -242,8 +240,6 @@ class MatrixPreparer:
         :return: series of MatrixInfo objects describing the results of the
         separation.
         """
-        log.info('Separating by library construction approach...')
-
         with DirectoryChange(self.info.extract_path):
             barcodes = Tsv('barcodes.tsv', False)
             try:
@@ -273,7 +269,7 @@ class MatrixPreparer:
                 return [self.info]
             else:
                 for lca in self.info.lib_con_approaches:
-                    log.info(f'Consolidating {lca} cells')
+                    log.debug(f'Consolidating {lca} cells')
                     lca_dir = Path(lca)
                     lca_dir.mkdir()
 

@@ -21,6 +21,6 @@ class MatrixInfo:
         try:
             lca = one(self.lib_con_approaches)
         except ValueError:
-            raise RuntimeError(f'Should not upload figures for matrix {self.project_uuid}'
+            raise RuntimeError(f'Should not upload figures for matrix {self.project_uuid} '
                                'because it has not been separated by library construction approach.')
         return f'{self.project_uuid}/{lca}/'

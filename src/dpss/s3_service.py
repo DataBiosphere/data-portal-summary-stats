@@ -96,24 +96,23 @@ class S3Service:
         bytes_string = response['Body'].read()
         return bytes_string.decode().strip('\n').split('\n')
 
-    def upload_figures(self, mtx_info: MatrixInfo) -> None:
+    def upload_figure(self, mtx_info: MatrixInfo, figure: str) -> None:
         """
         Upload figures generated from the downloaded matrix.
         """
         bucket = self.bucket_names['figures']
-        for figure in MatrixSummaryStats.target_images():
-            key = f'{self.key_prefixes["figures"]}{mtx_info.figures_folder}{figure}'
-            log.info(f'Uploading {figure} to S3 bucket {bucket} as {key}')
-            self.client.upload_file(
-                Filename=f'figures/{figure}',
-                Bucket=bucket,
-                Key=key,
-                ExtraArgs={
-                    'ACL': 'public-read',
-                    'ContentDisposition': 'inline',
-                    'ContentType': f'image/{MatrixSummaryStats.figure_format}'
-                }
-            )
+        key = f'{self.key_prefixes["figures"]}{mtx_info.figures_folder}{figure}'
+        log.debug(f'Uploading {figure} to S3 bucket {bucket} as {key}')
+        self.client.upload_file(
+            Filename=f'figures/{figure}',
+            Bucket=bucket,
+            Key=key,
+            ExtraArgs={
+                'ACL': 'public-read',
+                'ContentDisposition': 'inline',
+                'ContentType': f'image/{MatrixSummaryStats.figure_format}'
+            }
+        )
 
 
 s3service = S3Service()
