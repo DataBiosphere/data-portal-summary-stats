@@ -35,13 +35,13 @@ def generate_matrix_stats(project_mtx_info: MatrixInfo, processed_mtx_infos: Seq
     mss.create_images()
 
 
-def upload_figures(project_matrix_info: MatrixInfo):
+def upload_figures(project_matrix_info: MatrixInfo) -> None:
     log.info(f'Uploading figures for {project_matrix_info.project_uuid}')
     for figure in MatrixSummaryStats.target_images():
         s3service.upload_figure(project_matrix_info, figure)
 
 
-def run(iter_matrices):
+def run(iter_matrices) -> bool:
     try:
         project_mtx_info = next(iter_matrices)
     except StopIteration:
@@ -49,13 +49,12 @@ def run(iter_matrices):
         return True
     except SkipMatrix as s:
         log.info(f'Skipping targeted matrix: {s.__cause__}')
-        return False
+    else:
+        log.info(f'Writing to temporary directory {str(Path.cwd())}')
+        log.info(f'Processing matrix for project {project_mtx_info.project_uuid} ({project_mtx_info.source})')
 
-    log.info(f'Writing to temporary directory {str(Path.cwd())}')
-    log.info(f'Processing matrix for project {project_mtx_info.project_uuid} ({project_mtx_info.source})')
-
-    processed_mtx_infos = prepare_matrices(project_mtx_info)
-    generate_matrix_stats(project_mtx_info, processed_mtx_infos)
-    upload_figures(project_mtx_info)
+        processed_mtx_infos = prepare_matrices(project_mtx_info)
+        generate_matrix_stats(project_mtx_info, processed_mtx_infos)
+        upload_figures(project_mtx_info)
 
     return False

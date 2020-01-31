@@ -40,7 +40,8 @@ class Config:
     def ignore_mtime(self) -> bool:
         return os.environ.get('DPSS_FORCE') == '1'
 
-    def stage_str(self, stage: str) -> str:
+    @classmethod
+    def stage_str(cls, stage: str) -> str:
         return '' if stage == 'prod' else f'{stage}.'
 
     @property
@@ -79,7 +80,13 @@ class Config:
     def memory_log_file(self) -> str:
         return self.time_fmt(self._init_time) + '.dpss.memory.log'
 
-    def time_fmt(self, t: datetime.datetime) -> str:
+    @property
+    def memory_interval(self) -> float:
+        return 1.0
+
+    @classmethod
+    def time_fmt(cls, t: datetime.datetime) -> str:
         return t.strftime('%m-%d-%Y_%H:%M:%S;%f')
+
 
 config = Config()

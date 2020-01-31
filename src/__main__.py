@@ -28,10 +28,7 @@ def main():
              f' from the {config.source_stage} deployment stage.')
     log.info(f'Results will be uploaded to the {config.target_stage} project assets folder.')
 
-    memory_interval = 30
-    memory_monitor = MemoryMonitorThread(interval=memory_interval)
-    log.info(f'Logging memory usage to {config.memory_log_file}'
-             f' every {memory_interval} seconds.')
+    memory_monitor = MemoryMonitorThread(interval=config.memory_interval)
     memory_monitor.start()
 
     provider = matrix_provider.get_provider()
@@ -44,6 +41,7 @@ def main():
                 finished = run(iter_matrices)
             except Exception:
                 log.error(f'Matrix failed; continuing', exc_info=True)
+                continue
 
 
 if __name__ == "__main__":
