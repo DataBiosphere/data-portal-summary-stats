@@ -7,6 +7,7 @@ more-itertools==7.2.0
 moto==1.3.13
 python-coveralls==2.9.3
 python-igraph==0.7.1.post6
+pandas==0.25.3
 responses==0.10.6
 requests==2.22.0
 scanpy==1.4.4.post1
