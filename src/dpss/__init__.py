@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 def prepare_matrices(project_mtx_info: MatrixInfo) -> List[MatrixInfo]:
-    log.info(f'Transoforming {project_mtx_info.project_uuid} files')
+    log.info(f'Transforming {project_mtx_info.project_uuid} files')
 
     extracted_mtx_infos = MatrixPreparer(project_mtx_info).unzip()
     sep_mtx_infos = []

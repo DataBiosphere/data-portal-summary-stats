@@ -42,7 +42,9 @@ log = logging.getLogger(__name__)
 
 
 class MatrixProvider(ABC):
-
+    """
+    Base class for matrix provision.
+    """
     def __init__(self):
         self.blacklist = frozenset(s3service.get_blacklist() if config.use_blacklist else [])
 
@@ -85,7 +87,10 @@ class MatrixProvider(ABC):
 
 
 class IdempotentMatrixProvider(MatrixProvider, ABC):
-
+    """
+    Provider that can detect when figures are outdated and skip processing
+    otherwise.
+    """
     def __init__(self):
         self.figure_mtimes = self.get_figure_modification_times()
         self.matrix_mtimes = self.get_matrix_modifications_times()
@@ -134,6 +139,9 @@ class IdempotentMatrixProvider(MatrixProvider, ABC):
 
 
 class CannedMatrixProvider(IdempotentMatrixProvider):
+    """
+    Download matrices from S3 bucket.
+    """
     SOURCE_NAME = 'canned'
 
     mtx_ext = '.mtx.zip'
@@ -173,6 +181,9 @@ class CannedMatrixProvider(IdempotentMatrixProvider):
 
 
 class FreshMatrixProvider(MatrixProvider):
+    """
+    Download matrices from HCA matrix service.
+    """
     SOURCE_NAME = 'fresh'
 
     project_id_field = 'project.provenance.document_id'
@@ -326,6 +337,9 @@ class FreshMatrixProvider(MatrixProvider):
 
 
 class LocalMatrixProvider(IdempotentMatrixProvider):
+    """
+    Use matrices already present on disk.
+    """
     SOURCE_NAME = 'local'
 
     def __init__(self):

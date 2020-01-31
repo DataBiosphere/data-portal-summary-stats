@@ -5,7 +5,6 @@ from typing import (
     Dict,
     Callable,
 )
-import warnings
 
 from more_itertools import one
 import scanpy as sc
@@ -25,6 +24,9 @@ matplotlib.use('Agg')
 
 
 class MatrixSummaryStats:
+    """
+    Analysis and plotting.
+    """
     figure_format = 'png'
     figure_width = 6
     figure_dpi = 100
@@ -105,40 +107,10 @@ class MatrixSummaryStats:
         else:
             self.example_gene = common_gene
 
-    def _create_figure(self, ncols=1):
-        return plt.subplots(
-            nrows=len(self.adatas),
-            ncols=ncols,
-            squeeze=False
-        )
-
-    def _plot(self, callback, figure, axes, *sc_args, **sc_kwargs):
-        for ax, adata in zip(axes.flat, self.adatas):
-            callback(adata, ax=ax, *sc_args, **sc_kwargs, save=False, show=False)
-        self._set_fig_width(figure, self.figure_width)
-
-    def _save_image(self, name):
-        if name not in self.target_images():
-            log.warning(f'Generating non-target image {name}.{self.figure_format}')
-        plt.tight_layout()
-        os.makedirs('figures', exist_ok=True)
-        plt.savefig(
-            f'figures/{name}.{self.figure_format}',
-            dpi=self.figure_dpi
-        )
-        plt.close('all')
-
-    def _simple_plot(self, name, callback, *sc_args, **sc_kwargs):
-        pl = self._create_figure()
-        self._plot(callback, *pl, *sc_args, **sc_kwargs)
-        self._save_image(name)
-
-    @classmethod
-    def _set_fig_width(cls, fig, width):
-        fig.set_size_inches(width, fig.get_size_inches()[1])
-
     @classmethod
     def target_images(cls) -> Dict[str, Callable]:
+        # Processing order is important because some steps add annotations used
+        # by later steps
         return OrderedDict([
             ('highest_expr_genes', cls.highest_expr_genes),
             ('violin', cls.violin),
@@ -264,3 +236,36 @@ class MatrixSummaryStats:
                 method(self)
             except Exception:
                 log.error(f'Failed to plot {figure}; continuing', exc_info=True)
+
+    def _create_figure(self, ncols=1):
+        return plt.subplots(
+            nrows=len(self.adatas),
+            ncols=ncols,
+            squeeze=False
+        )
+
+    def _plot(self, callback, figure, axes, *sc_args, **sc_kwargs):
+        for ax, adata in zip(axes.flat, self.adatas):
+            callback(adata, ax=ax, *sc_args, **sc_kwargs, save=False, show=False)
+        self._set_fig_width(figure, self.figure_width)
+
+    def _save_image(self, name):
+        if name not in self.target_images():
+            log.warning(f'Generating non-target image {name}.{self.figure_format}')
+        plt.tight_layout()
+        os.makedirs('figures', exist_ok=True)
+        plt.savefig(
+            f'figures/{name}.{self.figure_format}',
+            dpi=self.figure_dpi
+        )
+        plt.close('all')
+
+    def _simple_plot(self, name, callback, *sc_args, **sc_kwargs):
+        pl = self._create_figure()
+        self._plot(callback, *pl, *sc_args, **sc_kwargs)
+        self._save_image(name)
+
+    @classmethod
+    def _set_fig_width(cls, fig, width):
+        fig.set_size_inches(width, fig.get_size_inches()[1])
+

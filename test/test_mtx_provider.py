@@ -3,6 +3,8 @@ from abc import (
     ABC,
 )
 import os
+from pathlib import Path
+import shutil
 import unittest
 from unittest import mock
 
@@ -16,12 +18,15 @@ from dpss.exceptions import SkipMatrix
 from dpss.matrix_provider import (
     CannedMatrixProvider,
     FreshMatrixProvider,
+    LocalMatrixProvider,
 )
 from dpss.s3_service import (
     S3Service,
     s3service,
 )
-from dpss.utils import TemporaryDirectoryChange
+from dpss.utils import (
+    TemporaryDirectoryChange,
+)
 from test.s3_test_case import S3TestCase
 from test.tempdir_test_case import TempdirTestCase
 
@@ -201,6 +206,43 @@ class TestCanned(TempdirTestCase, S3TestCase, TestMatrixProvider):
             self.assertEqual(os.listdir('.'), [key])
             self.assertEqual(mtx_info.zip_path, key)
             self.assertEqual(mtx_info.source, 'canned')
+
+
+local_test_dir = Path('/tmp/local_matrix_test')
+
+
+@mock.patch.object(Config, 'local_projects_path', new=mock.PropertyMock(return_value=local_test_dir))
+class TestLocal(S3TestCase, TestMatrixProvider):
+
+    fake_projects = {'123', '456', '789'}
+
+    def setUp(self):
+        super().setUp()
+        local_test_dir.mkdir()
+        for project in self.fake_projects:
+            bundle_dir = local_test_dir / project / 'bundle'
+            bundle_dir.mkdir(parents=True)
+            with open(str(bundle_dir / 'donor_organism_0.json'), 'w') as f:
+                f.write('{"genus_species":[{"text":"Homo_sapiens"}]}')
+            (bundle_dir / 'matrix.mtx.zip').touch()
+            (local_test_dir / f'GSE_{project}').symlink_to(project)
+
+    def tearDown(self):
+        shutil.rmtree(local_test_dir)
+        super().tearDown()
+
+    def test_get_entity_ids(self):
+        provider = LocalMatrixProvider()
+        self.assertEqual(set(provider.get_entity_ids()), self.fake_projects)
+
+    def test_obtain_matrix(self):
+        provider = LocalMatrixProvider()
+        for project_id in provider.get_entity_ids():
+            mtx_info = provider.obtain_matrix(project_id)
+            self.assertEqual(mtx_info.source, 'local')
+            self.assertTrue(mtx_info.extract_path.name in self.fake_projects)
+            self.assertTrue(mtx_info.zip_path.is_file())
+            self.assertTrue(mtx_info.project_uuid.endswith('.homo_sapiens'))
 
 
 if __name__ == '__main__':
