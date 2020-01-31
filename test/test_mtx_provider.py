@@ -3,17 +3,30 @@ from abc import (
     ABC,
 )
 import os
+from pathlib import Path
+import shutil
 import unittest
+from unittest import mock
 
 import responses
 
-from dpss.config import config
+from dpss.config import (
+    Config,
+    config,
+)
+from dpss.exceptions import SkipMatrix
 from dpss.matrix_provider import (
     CannedMatrixProvider,
     FreshMatrixProvider,
+    LocalMatrixProvider,
 )
-from dpss.s3_service import S3Service
-from dpss.utils import TemporaryDirectoryChange
+from dpss.s3_service import (
+    S3Service,
+    s3service,
+)
+from dpss.utils import (
+    TemporaryDirectoryChange,
+)
 from test.s3_test_case import S3TestCase
 from test.tempdir_test_case import TempdirTestCase
 
@@ -29,18 +42,54 @@ class TestMatrixProvider(ABC):
         raise NotImplementedError
 
 
+@mock.patch.object(Config, 'source_stage', new=mock.PropertyMock(return_value='dev'))
 class TestFresh(TempdirTestCase, TestMatrixProvider):
-    project_field_name = 'project.provenance.document_id'
+    matrix_id_good = 'iiiiiiiiiiiiiiiiii'
+    matrix_id_bad = 'i93e85494839389'
 
-    url_get1 = f'{config.hca_matrix_service_endpoint}filters/{project_field_name}'
-    url_post = f'{config.hca_matrix_service_endpoint}matrix/'
-
-    def setUp(self):
-        super().setUp()
-        self.provider = FreshMatrixProvider(blacklist=['bad'])
+    def _azul_mock(self):
+        responses.add(
+            responses.GET,
+            config.azul_project_endpoint,
+            status=200,
+            json={
+                "hits": [
+                    {
+                        "entryId": self.matrix_id_good,
+                        "projects": [{
+                            "projectTitle": "foo",
+                        }],
+                        "protocols": [{
+                            "libraryConstructionApproach": [
+                                "Smart-seq2"
+                            ]
+                        }]
+                    },
+                    {
+                        "entryId": self.matrix_id_bad,
+                        "projects": [{
+                            "projectTitle": "bar",
+                        }],
+                        "protocols": [{
+                            "libraryConstructionApproach": [
+                                "not a good boy"
+                            ]
+                        }]
+                    }
+                ],
+                "pagination": {
+                    "search_after": None,
+                    "search_after_uid": None
+                }
+            }
+        )
 
     @responses.activate
     def test_get_entity_ids(self):
+        self._azul_mock()
+
+        provider = FreshMatrixProvider()
+
         cell_counts = {
             '08e7b6ba-5825-47e9-be2d-7978533c5f8c': 2,
             '425efc0a-d3fe-4fab-9f74-3bd829ebdf01': 1,
@@ -49,56 +98,63 @@ class TestFresh(TempdirTestCase, TestMatrixProvider):
 
         responses.add(
             responses.GET,
-            self.url_get1,
+            provider.hca_matrix_service_project_list_url,
             json={
                 'cell_counts': cell_counts,
                 'field_description': 'Unique identifier for overall project.',
-                'field_name': self.project_field_name,
+                'field_name': FreshMatrixProvider.project_id_field,
                 'field_type': 'categorical'
             }
         )
-        observed_list = self.provider.get_entity_ids()
+
+        observed_list = provider.get_entity_ids()
         self.assertEqual(set(observed_list), set(cell_counts.keys()))
 
     @responses.activate
     def test_obtain_matrix(self):
+        self._azul_mock()
+
+        provider = FreshMatrixProvider()
+
         request_id = '3c44455c-d751-4fc9-a119-3a55c05f8990'
 
-        url_get2 = f'{config.hca_matrix_service_endpoint}matrix/{request_id}'
         matrix_url = 'https://s3.amazonaws.com/fake-matrix-service-results/0/424242/13-13.mtx.zip'
 
         # First response: GET (to satisfy the assertion):
         responses.add(
             responses.GET,
-            self.url_get1,
+            provider.hca_matrix_service_project_list_url,
             json={
                 'cell_counts': {
-                    'e7d811e2-832a-4452-85a5-989e2f8267bf': 2,
+                    self.matrix_id_good: 2,
                 },
-            })
+            }
+        )
 
         # Second response: POST:
         responses.add(
             responses.POST,
-            self.url_post,
+            provider.hca_matrix_service_request_url,
             json={
                 'message': 'Job started.',
                 'non_human_request_ids': {},
                 'request_id': request_id,
                 'status': 'In Progress'
             },
-            status=202)
+            status=202
+        )
 
         # Third response: GET returns in progress:
         responses.add(
             responses.GET,
-            url_get2,
-            json={'status': 'In Progress'})
+            provider.hca_matrix_service_request_url + request_id,
+            json={'status': 'In Progress'}
+        )
 
         # Fourth response: GET returns "complete":
         responses.add(
             responses.GET,
-            url_get2,
+            provider.hca_matrix_service_request_url + request_id,
             json={
                 'eta': '',
                 'matrix_url': matrix_url,
@@ -106,51 +162,87 @@ class TestFresh(TempdirTestCase, TestMatrixProvider):
                 'request_id': request_id,
                 'status': 'Complete'
             },
-            status=200)
+            status=200
+        )
 
         # Fifth response: GET in get_expression_matrix_from_service
         responses.add(responses.GET, matrix_url, status=200, stream=True)
 
-        responses.add(responses.GET,
-                      config.azul_project_endpoint,
-                      json={
-                          'foo': 'bar'
-                      })
-
-        mtx_info = self.provider.obtain_matrix('e7d811e2-832a-4452-85a5-989e2f8267bf')
-        self.assertEqual(mtx_info.zip_path, '13-13.mtx.zip')
+        mtx_info = provider.obtain_matrix(self.matrix_id_good)
+        self.assertEqual(str(mtx_info.zip_path), '13-13.mtx.zip')
         self.assertEqual(mtx_info.source, 'fresh')
+
+        self.assertRaises(SkipMatrix, provider.obtain_matrix, self.matrix_id_bad)
 
 
 class TestCanned(TempdirTestCase, S3TestCase, TestMatrixProvider):
+    uuids = {'123', '456', '789', 'bad'}
 
     def setUp(self) -> None:
-        TempdirTestCase.setUp(self)
         S3TestCase.setUp(self)
-        self.provider = CannedMatrixProvider(blacklist=['bad'],
-                                             s3_service=S3Service())
+        TempdirTestCase.setUp(self)
+        for uuid in self.uuids:
+            s3service.client.put_object(
+                Bucket=config.s3_matrix_bucket_name,
+                Key=f'{config.s3_canned_matrix_prefix}{uuid}.mtx.zip'
+            )
 
     def tearDown(self):
-        S3TestCase.tearDown(self)
         TempdirTestCase.tearDown(self)
+        S3TestCase.tearDown(self)
 
-    def test_get_entity_ids(self):
-        uuids = {'123', '456', '789', 'bad'}
-        for uuid in uuids:
-            self.client.put_object(Bucket=config.s3_matrix_bucket_name,
-                                   Key=f'{config.s3_canned_matrix_prefix}{uuid}.mtx.zip')
-        self.assertEqual(set(self.provider.get_entity_ids()), uuids)
+    @mock.patch.object(S3Service, 'get_blacklist')
+    def test_get_entity_ids(self, mock_method):
+        mock_method.return_value = ['bad']
+        provider = CannedMatrixProvider()
+        self.assertEqual(set(provider.get_entity_ids()), self.uuids)
 
     def test_obtain_matrix(self):
         uuid = '123'
         key = uuid + '.mtx.zip'
+        provider = CannedMatrixProvider()
         with TemporaryDirectoryChange():
-            self.client.put_object(Bucket=config.s3_matrix_bucket_name,
-                                   Key=config.s3_canned_matrix_prefix + key)
-            mtx_info = self.provider.obtain_matrix(uuid)
+            mtx_info = provider.obtain_matrix(uuid)
             self.assertEqual(os.listdir('.'), [key])
             self.assertEqual(mtx_info.zip_path, key)
             self.assertEqual(mtx_info.source, 'canned')
+
+
+local_test_dir = Path('/tmp/local_matrix_test')
+
+
+@mock.patch.object(Config, 'local_projects_path', new=mock.PropertyMock(return_value=local_test_dir))
+class TestLocal(S3TestCase, TestMatrixProvider):
+
+    fake_projects = {'123', '456', '789'}
+
+    def setUp(self):
+        super().setUp()
+        local_test_dir.mkdir()
+        for project in self.fake_projects:
+            bundle_dir = local_test_dir / project / 'bundle'
+            bundle_dir.mkdir(parents=True)
+            with open(str(bundle_dir / 'donor_organism_0.json'), 'w') as f:
+                f.write('{"genus_species":[{"text":"Homo_sapiens"}]}')
+            (bundle_dir / 'matrix.mtx.zip').touch()
+            (local_test_dir / f'GSE_{project}').symlink_to(project)
+
+    def tearDown(self):
+        shutil.rmtree(local_test_dir)
+        super().tearDown()
+
+    def test_get_entity_ids(self):
+        provider = LocalMatrixProvider()
+        self.assertEqual(set(provider.get_entity_ids()), self.fake_projects)
+
+    def test_obtain_matrix(self):
+        provider = LocalMatrixProvider()
+        for project_id in provider.get_entity_ids():
+            mtx_info = provider.obtain_matrix(project_id)
+            self.assertEqual(mtx_info.source, 'local')
+            self.assertTrue(mtx_info.extract_path.name in self.fake_projects)
+            self.assertTrue(mtx_info.zip_path.is_file())
+            self.assertTrue(mtx_info.project_uuid.endswith('.homo_sapiens'))
 
 
 if __name__ == '__main__':

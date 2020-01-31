@@ -1,6 +1,6 @@
+from pathlib import Path
 import shutil
 import unittest
-import os
 
 from dpss.matrix_info import MatrixInfo
 from dpss.utils import (
@@ -25,12 +25,12 @@ class MockMatrixTestCase(TempdirTestCase):
 
     def setUp(self):
         super().setUp()
-        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', self.mock_matrix)
+        src = Path(__file__).resolve().parent / 'resources' / self.mock_matrix
         dst = f'./{self.mock_matrix}'
         shutil.copyfile(src, dst)
 
         self.info = MatrixInfo(
             source='mock',
-            zip_path=self.mock_matrix,
-            extract_path=remove_ext(self.mock_matrix, '.zip'),
+            zip_path=Path(self.mock_matrix),
+            extract_path=Path(remove_ext(self.mock_matrix, '.zip')),
             project_uuid=file_id(self.mock_matrix, '.mtx.zip'))

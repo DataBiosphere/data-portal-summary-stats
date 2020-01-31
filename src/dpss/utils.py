@@ -1,9 +1,13 @@
+import gzip
 import os
 import math
+import importlib.util
+from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 from typing import (
-    List,
     Optional,
+    Union,
 )
 
 import logging
@@ -25,12 +29,7 @@ def convert_size(size_bytes: float) -> str:
     return f'{s} {order_of_magnitude[i]}'
 
 
-def get_blacklist() -> List[str]:
-    with open('blacklist', 'r') as fp:
-        return [line.rstrip('\n') for line in fp]
-
-
-def file_id(path: str, ext: Optional[str] = None):
+def file_id(path: Union[str, Path], ext: Optional[str] = None):
     """
     :param path: filepath potentially including preceding directories or file
     extensions
@@ -39,24 +38,42 @@ def file_id(path: str, ext: Optional[str] = None):
     :return: filename without preceding directories or extensions.
     """
 
-    path = os.path.basename(path)
+    basename = path.name if isinstance(path, Path) else os.path.basename(path)
     if ext is None:
-        return first(path.split('.', 1))
+        return first(basename.split('.', 1))
     else:
-        return remove_ext(path, ext)
+        return remove_ext(basename, ext)
 
 
-def remove_ext(path: str, ext: str):
+def remove_ext(filename: str, ext: str) -> str:
     """
     Remove a file extension. No effect if provided extension is missing.
     """
     if not ext.startswith('.'):
-        ext = '.' + ext
-    parts = path.rsplit(ext, 1)
+        ext = f'.{ext}'
+    parts = filename.rsplit(ext, 1)
     if len(parts) == 2 and parts[1] == '':
-        return first(parts)
+        return parts[0]
     else:
-        return path
+        return filename
+
+
+def gunzip(gzfilename: Union[str, Path], rm_gz: bool = True):
+    gzfilename = str(gzfilename)
+    filename = remove_ext(gzfilename, '.gz')
+    with gzip.open(gzfilename, 'rb') as gzfile:
+        with open(filename, 'wb') as outfile:
+            shutil.copyfileobj(gzfile, outfile)
+    if rm_gz:
+        os.remove(gzfilename)
+
+
+def traverse_dirs(root: Path, follow_symlinks: bool = False):
+    yield root
+    for entry in root.iterdir():
+        if entry.is_dir() and (follow_symlinks or not entry.is_symlink()):
+            for d in traverse_dirs(entry, follow_symlinks):
+                yield d
 
 
 class DirectoryChange:
@@ -69,12 +86,12 @@ class DirectoryChange:
         self.new_dir = new_dir
 
     def __enter__(self):
-        self.old_dir = os.getcwd()
+        self.old_dir = Path.cwd()
         os.chdir(self.new_dir)
         return self.new_dir
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
-        os.chdir(self.old_dir)
+        os.chdir(str(self.old_dir))
 
 
 class TemporaryDirectoryChange(DirectoryChange):
@@ -90,3 +107,10 @@ class TemporaryDirectoryChange(DirectoryChange):
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
         super().__exit__(exc_type, exc_val, exc_tb)
         self.tmp.cleanup()
+
+
+def load_external_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

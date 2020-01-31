@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import (
     Optional,
     FrozenSet,
@@ -11,8 +12,8 @@ from more_itertools import one
 class MatrixInfo:
     source: str
     project_uuid: str
-    zip_path: Optional[str]
-    extract_path: str
+    zip_path: Optional[Path]
+    extract_path: Path
     lib_con_approaches: FrozenSet[str] = frozenset()
 
     @property
@@ -20,6 +21,6 @@ class MatrixInfo:
         try:
             lca = one(self.lib_con_approaches)
         except ValueError:
-            raise RuntimeError(f'Should not upload figures for matrix {self.project_uuid}'
+            raise RuntimeError(f'Should not upload figures for matrix {self.project_uuid} '
                                'because it has not been separated by library construction approach.')
         return f'{self.project_uuid}/{lca}/'

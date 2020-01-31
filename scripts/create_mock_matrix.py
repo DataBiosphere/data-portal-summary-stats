@@ -1,18 +1,13 @@
-#!./.venv/bin/python
-import os
 import shutil
 
-from src.matrix_preparer import MatrixPreparer
-from src.matrix_provider import CannedMatrixProvider
-from src.s3_service import S3Service
-from src.utils import DirectoryChange
+from src.dpss.matrix_preparer import MatrixPreparer
+from src.dpss.matrix_provider import CannedMatrixProvider
+from src.dpss.utils import DirectoryChange
 from test.tempdir_test_case import MockMatrixTestCase
 
 
 def main():
-    os.environ['AWS_DEFAULT_PROFILE'] = 'hca-id'
-    s3 = S3Service()
-    provider = CannedMatrixProvider(s3_service=s3)
+    provider = CannedMatrixProvider()
     with DirectoryChange('../test/'):
         print('Entering test directory')
         mtxinfo = next(iter(provider))
