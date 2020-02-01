@@ -100,7 +100,7 @@ class S3Service:
         bytes_string = response['Body'].read()
         return bytes_string.decode().strip('\n').split('\n')
 
-    def upload_figure(self, folder, figure: str) -> None:
+    def upload_figure(self, folder: str, figure: str) -> None:
         """
         Upload figures generated from the downloaded matrix.
         """

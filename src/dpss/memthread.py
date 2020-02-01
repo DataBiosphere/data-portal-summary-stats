@@ -31,7 +31,7 @@ class MemoryMonitorThread(threading.Thread):
         origin = self.used_memory() if self.relative else 0
         while True:
             used_memory = self.used_memory() - origin
-            log.debug(f'{used_memory}\t{convert_size(used_memory)}')
+            log.debug(f'{used_memory} {convert_size(used_memory)}')
             time.sleep(self.interval)
 
     @classmethod
