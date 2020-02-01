@@ -234,6 +234,7 @@ class MatrixSummaryStats:
         log.info(f'Figures saved in {self.figure_format} format.')
 
         for figure, method in self.target_images().items():
+            log.info(f'Plotting {figure}')
             try:
                 method(self)
             except Exception:

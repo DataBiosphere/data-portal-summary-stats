@@ -9,7 +9,6 @@ from typing import (
 import boto3
 
 from dpss.config import config
-from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
 from dpss.utils import setup_log
 
@@ -48,7 +47,10 @@ class S3Service:
         Order object keys by the size of their respective objects in the specified bucket.
         """
         bucket = self.bucket_names[target]
-        return sorted(keys, key=lambda k: self.client.head_object(Bucket=bucket, Key=k)['ContentLength'])
+        return sorted(
+            keys,
+            key=lambda k: self.client.head_object(Bucket=bucket, Key=k)['ContentLength']
+        )
 
     def list_bucket(
         self,
@@ -98,13 +100,13 @@ class S3Service:
         bytes_string = response['Body'].read()
         return bytes_string.decode().strip('\n').split('\n')
 
-    def upload_figure(self, mtx_info: MatrixInfo, figure: str) -> None:
+    def upload_figure(self, folder, figure: str) -> None:
         """
         Upload figures generated from the downloaded matrix.
         """
+        figure = f'{figure}.{MatrixSummaryStats.figure_format}'
         bucket = self.bucket_names['figures']
-        key = f'{self.key_prefixes["figures"]}{mtx_info.figures_folder}{figure}'
-        log.debug(f'Uploading {figure} to S3 bucket {bucket} as {key}')
+        key = f'{self.key_prefixes["figures"]}{folder}{figure}'
         self.client.upload_file(
             Filename=f'figures/{figure}',
             Bucket=bucket,
@@ -115,6 +117,7 @@ class S3Service:
                 'ContentType': f'image/{MatrixSummaryStats.figure_format}'
             }
         )
+        log.info(f'Uploading {figure} to S3 bucket {bucket} as {key}')
 
 
 s3service = S3Service()

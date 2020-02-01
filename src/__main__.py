@@ -12,10 +12,7 @@ from dpss.utils import (
 )
 
 log = logging.getLogger(__name__)
-setup_log(__name__,
-          logging.INFO,
-          logging.StreamHandler(),
-          logging.FileHandler(config.main_log_file))
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 # These libraries make a lot of debug-level log messages which make the log file hard to read
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -42,6 +39,7 @@ def main():
             except Exception:
                 log.error(f'Matrix failed; continuing', exc_info=True)
                 continue
+    log.info('Finished.')
 
 
 if __name__ == "__main__":

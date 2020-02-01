@@ -12,7 +12,10 @@ from typing import (
     Generator,
 )
 
-from more_itertools import first
+from more_itertools import (
+    first,
+    one,
+)
 
 Module = type(math)
 
@@ -42,6 +45,10 @@ def convert_size(size_bytes: float) -> str:
     d = round(size_bytes / p, 2)
 
     return f'{sign}{d} {order_of_magnitude[i]}'
+
+
+def common_attr(objects, attr):
+    return one({getattr(o, attr) for o in objects})
 
 
 def file_id(path: Union[str, Path], ext: Optional[str] = None):
