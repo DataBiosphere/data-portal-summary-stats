@@ -1,4 +1,5 @@
 import gzip
+import logging
 import os
 import math
 import importlib.util
@@ -8,12 +9,24 @@ from tempfile import TemporaryDirectory
 from typing import (
     Optional,
     Union,
+    Generator,
 )
 
-import logging
-from more_itertools import first
+from more_itertools import (
+    first,
+    one,
+)
 
-logger = logging.getLogger(__name__)
+Module = type(math)
+
+
+def setup_log(log_name, log_level, *handlers):
+    log = logging.getLogger(log_name)
+    log.setLevel(log_level)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        log.addHandler(handler)
 
 
 # The following is adapted from
@@ -21,12 +34,21 @@ logger = logging.getLogger(__name__)
 def convert_size(size_bytes: float) -> str:
     if size_bytes == 0:
         return "0 B"
+    elif size_bytes < 0:
+        size_bytes = -size_bytes
+        sign = '-'
+    else:
+        sign = ''
     order_of_magnitude = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
     i = int(math.floor(math.log(size_bytes, 1024)))
     p = math.pow(1024, i)
-    s = round(size_bytes / p, 2)
+    d = round(size_bytes / p, 2)
 
-    return f'{s} {order_of_magnitude[i]}'
+    return f'{sign}{d} {order_of_magnitude[i]}'
+
+
+def common_attr(objects, attr):
+    return one({getattr(o, attr) for o in objects})
 
 
 def file_id(path: Union[str, Path], ext: Optional[str] = None):
@@ -58,7 +80,12 @@ def remove_ext(filename: str, ext: str) -> str:
         return filename
 
 
-def gunzip(gzfilename: Union[str, Path], rm_gz: bool = True):
+def gunzip(gzfilename: Union[str, Path], rm_gz: bool = True) -> None:
+    """
+    Uncompress a gzip-d file on disk.
+    :param gzfilename: gzip-ed file to uncompress.
+    :param rm_gz: whether to delete the compressed file after uncompressing.
+    """
     gzfilename = str(gzfilename)
     filename = remove_ext(gzfilename, '.gz')
     with gzip.open(gzfilename, 'rb') as gzfile:
@@ -68,7 +95,11 @@ def gunzip(gzfilename: Union[str, Path], rm_gz: bool = True):
         os.remove(gzfilename)
 
 
-def traverse_dirs(root: Path, follow_symlinks: bool = False):
+def traverse_dirs(root: Path, follow_symlinks: bool = False) -> Generator[Path, None, None]:
+    """
+    Iterate all directories starting from the specified root.
+    :return:
+    """
     yield root
     for entry in root.iterdir():
         if entry.is_dir() and (follow_symlinks or not entry.is_symlink()):
@@ -109,7 +140,7 @@ class TemporaryDirectoryChange(DirectoryChange):
         self.tmp.cleanup()
 
 
-def load_external_module(name, path):
+def load_external_module(name, path) -> Module:
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

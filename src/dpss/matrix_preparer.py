@@ -22,9 +22,11 @@ from dpss.utils import (
     DirectoryChange,
     gunzip,
     traverse_dirs,
+    setup_log,
 )
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 
 class Mtx:
@@ -186,7 +188,7 @@ class MatrixPreparer:
         Transform tsv/mtx files for ScanPy compatibility.
         """
         with DirectoryChange(self.info.extract_path):
-
+            log.info('Processing matrix.mtx')
             mtx = Mtx('matrix.mtx')
             sizes = mtx.sizes
             if mtx.process():
@@ -194,12 +196,14 @@ class MatrixPreparer:
 
             del mtx
 
+            log.info('Processing genes.tsv')
             genes = GenesTsv('genes.tsv', False)
             if genes.detect_header(sizes[0]) | genes.process():
                 genes.write()
 
             del genes
 
+            log.info('Processing barcodes.tsv')
             barcodes = BarcodesTsv('barcodes.tsv', False)
             if barcodes.detect_header(sizes[1]) | barcodes.process():
                 barcodes.write()
@@ -265,11 +269,11 @@ class MatrixPreparer:
             self.info.lib_con_approaches = found_lcas
 
             if len(self.info.lib_con_approaches) == 1:
-                log.debug(f'Homogeneous LCA: {one(self.info.lib_con_approaches)}')
+                log.info(f'Homogeneous LCA: {one(self.info.lib_con_approaches)}')
                 return [self.info]
             else:
                 for lca in self.info.lib_con_approaches:
-                    log.debug(f'Consolidating {lca} cells')
+                    log.info(f'Consolidating {lca} cells')
                     lca_dir = Path(lca)
                     lca_dir.mkdir()
 

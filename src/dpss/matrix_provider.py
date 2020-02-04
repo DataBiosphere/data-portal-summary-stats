@@ -33,12 +33,14 @@ from dpss.utils import (
     convert_size,
     file_id,
     remove_ext,
+    setup_log,
 )
 from more_itertools import (
     one,
 )
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 
 class MatrixProvider(ABC):
