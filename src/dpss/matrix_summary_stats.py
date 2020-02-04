@@ -62,6 +62,7 @@ class MatrixSummaryStats:
         self.adatas = None
 
     def load_data(self):
+        log.info('Loading scanpy data')
         self.adatas = []
         self.show_mito_genes = True
 

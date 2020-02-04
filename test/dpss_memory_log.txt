@@ -1,0 +1,2 @@
+2020-02-03 15:46:35,713 INFO <MemoryMonitorThread(Thread-1, initial daemon)> logging memory usage to dpss_memory_log.txt every 0.1 seconds.
+2020-02-03 15:46:35,714 INFO <MemoryMonitorThread(Thread-2, initial daemon)> logging memory usage to dpss_memory_log.txt every 0.1 seconds (relative to current usage).
