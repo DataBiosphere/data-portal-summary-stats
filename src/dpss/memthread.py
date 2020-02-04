@@ -32,10 +32,17 @@ class MemoryMonitorThread(threading.Thread):
 
     def run(self):
         origin = self.used_memory() if self.relative else 0
+        for memory_usage in self._log_memory(origin):
+            self.target_log.debug(self._format_memory(memory_usage))
+
+    def _log_memory(self, origin):
         while True:
-            used_memory = self.used_memory() - origin
-            self.target_log.debug(f'{used_memory} {convert_size(used_memory)}')
+            yield self.used_memory() - origin
             time.sleep(self.interval)
+
+    @classmethod
+    def _format_memory(cls, size_bytes):
+        return f'{size_bytes} {convert_size(size_bytes)}'
 
     @classmethod
     def used_memory(cls):
