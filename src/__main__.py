@@ -28,7 +28,8 @@ def main():
     memory_monitor = MemoryMonitorThread(interval=config.memory_interval)
     memory_monitor.start()
 
-    provider = matrix_provider.get_provider()
+    provider_type = matrix_provider.get_provider_type()
+    provider = provider_type()
 
     iter_matrices = iter(provider)
     finished = False

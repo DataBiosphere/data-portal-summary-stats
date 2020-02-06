@@ -10,6 +10,14 @@ from typing import (
     Optional,
     Union,
     Generator,
+    TypeVar,
+    Iterable,
+    Type,
+    Callable,
+    Any,
+    Tuple,
+    List,
+    Collection,
 )
 
 from more_itertools import (
@@ -48,6 +56,10 @@ def convert_size(size_bytes: float) -> str:
 
 
 def common_attr(objects, attr):
+    """
+    Assert that the specified attribute is the same across all objects and
+    return its unique value.
+    """
     return one({getattr(o, attr) for o in objects})
 
 
@@ -141,7 +153,56 @@ class TemporaryDirectoryChange(DirectoryChange):
 
 
 def load_external_module(name, path) -> Module:
+    """
+    Dynamically load a module from a non-project file.
+    Probably a bad idea.
+    """
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+T = TypeVar('T')
+
+
+def filter_exceptions(
+    func: Callable[[T], Any],
+    items: Iterable[T],
+    exc_cls: Union[Type[Exception], Tuple[Type[Exception], ...]] = Exception
+) -> Tuple[List[T], List[Tuple[T, Exception]]]:
+    """
+    Filter an iterable based on the exceptions raised while processing it.
+    :param func: exception-raising function to be mapped across the items
+    :param items: objects to be passed to the raising function
+    :param exc_cls: exception type(s) to be caught. Defaults to `Exception`.
+    :return: iterator of items in `items` that did not raise exceptions;
+    dictionary mapping those that did raise to the exceptions they raised.
+    """
+
+    non_raising_items = []
+    raising_items = []
+
+    for x in items:
+        try:
+            func(x)
+        except exc_cls as exc:
+            raising_items.append((x, exc))
+        else:
+            non_raising_items.append(x)
+
+    return non_raising_items, raising_items
+
+
+def sort_optionals(items: Collection, none_behavior: str = 'back', **kwargs):
+    not_none = [x for x in items if x is not None]
+    none = [None] * (len(items) - len(not_none))
+    not_none.sort(**kwargs)
+    if none_behavior == 'front':
+        return none + not_none
+    elif none_behavior == 'back':
+        return not_none + none
+    elif none_behavior == 'stable':
+        raise NotImplementedError
+    else:
+        raise ValueError(none_behavior)

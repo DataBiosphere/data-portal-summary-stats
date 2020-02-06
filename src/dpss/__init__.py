@@ -61,8 +61,6 @@ def run(iter_matrices) -> bool:
     except StopIteration:
         log.info('Finsished.')
         return True
-    except SkipMatrix as s:
-        log.info(f'Skipping targeted matrix: {s.__cause__}')
     else:
         log.info(f'Writing to temporary directory {str(Path.cwd())}')
         log.info(f'Processing matrix for project {project_mtx_info.project_uuid} ({project_mtx_info.source})')
