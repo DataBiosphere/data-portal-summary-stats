@@ -73,8 +73,8 @@ class Config:
         return Path('projects')
 
     @property
-    def memory_log_file(self) -> str:
-        return 'dpss_memory_log.txt'
+    def memory_log_file(self) -> Path:
+        return Path('dpss_memory_log.txt')
 
     @property
     def memory_interval(self) -> float:

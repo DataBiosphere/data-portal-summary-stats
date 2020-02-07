@@ -12,6 +12,8 @@ from dpss.utils import (
     DirectoryChange,
     remove_ext,
     common_attr,
+    filter_exceptions,
+    sort_optionals,
 )
 
 
@@ -61,6 +63,28 @@ class TestUtils(unittest.TestCase):
 
         self.assertEqual(common_attr([A(6) for _ in range(10)], 'a'), 6)
         self.assertRaises(ValueError, common_attr, [A(1), A(0)], 'a')
+
+    def test_filter_exceptions(self):
+        with self.subTest('none raise'):
+            self.assertEqual(filter_exceptions(lambda a: a, [1, 2, 3]), ([1, 2, 3], []))
+
+        with self.subTest('some raise'):
+            passed, failed = filter_exceptions(lambda x: 1/x, [0, 1])
+            self.assertEqual(passed, [1])
+            self.assertEqual(len(failed), 1)
+            self.assertEqual(failed[0][0], 0)
+            self.assertTrue(isinstance(failed[0][1], ZeroDivisionError))
+
+        with self.subTest('non target raise'):
+            self.assertRaises(ZeroDivisionError, filter_exceptions, lambda x: 1/x, [0, 1], AttributeError)
+
+    def test_sort_optionals(self):
+        for unordered, ordered, behavior in [
+            ([3, 2, 1], [1, 2, 3], 'back'),
+            ([None, 3, None, 2, None, 1], [1, 2, 3, None, None, None], 'back'),
+            ([2, 1, 3, None], [None, 1, 2, 3], 'front')
+        ]:
+            self.assertEqual(sort_optionals(unordered, behavior), ordered)
 
 
 if __name__ == '__main__':

@@ -28,9 +28,9 @@ class S3Service:
     }
 
     def __init__(self):
-        # client initialization is postponed until the client is used so that
+        # Client initialization is postponed until the client is used so that
         # the client will initialized under mock conditions during unit testing.
-        # if a client is instantiated outside of a mock environment, it will
+        # If a client is instantiated outside of a mock environment, it will
         # interfere with mocking even if another client is created and used
         # later independently.
         self._client = None
@@ -42,15 +42,15 @@ class S3Service:
             self._client = boto3.client('s3')
         return self._client
 
-    def sort_by_size(self, target: str, keys: Iterable[str]) -> List[str]:
+    def get_object_size(self, target: str, key: str) -> int:
         """
-        Order object keys by the size of their respective objects in the specified bucket.
+        Retrieve object size in bytes.
         """
-        bucket = self.bucket_names[target]
-        return sorted(
-            keys,
-            key=lambda k: self.client.head_object(Bucket=bucket, Key=k)['ContentLength']
+        response = self.client.head_object(
+            Bucket=self.bucket_names[target],
+            Key=self.key_prefixes[target] + key
         )
+        return response['ContentLength']
 
     def list_bucket(
         self,
