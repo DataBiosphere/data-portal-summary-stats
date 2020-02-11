@@ -9,10 +9,11 @@ from typing import (
 import boto3
 
 from dpss.config import config
-from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
+from dpss.utils import setup_log
 
 log = logging.getLogger(__name__)
+setup_log(__name__, logging.INFO, logging.StreamHandler())
 
 
 class S3Service:
@@ -27,9 +28,9 @@ class S3Service:
     }
 
     def __init__(self):
-        # client initialization is postponed until the client is used so that
+        # Client initialization is postponed until the client is used so that
         # the client will initialized under mock conditions during unit testing.
-        # if a client is instantiated outside of a mock environment, it will
+        # If a client is instantiated outside of a mock environment, it will
         # interfere with mocking even if another client is created and used
         # later independently.
         self._client = None
@@ -41,12 +42,15 @@ class S3Service:
             self._client = boto3.client('s3')
         return self._client
 
-    def sort_by_size(self, target: str, keys: Iterable[str]) -> List[str]:
+    def get_object_size(self, target: str, key: str) -> int:
         """
-        Order object keys by the size of their respective objects in the specified bucket.
+        Retrieve object size in bytes.
         """
-        bucket = self.bucket_names[target]
-        return sorted(keys, key=lambda k: self.client.head_object(Bucket=bucket, Key=k)['ContentLength'])
+        response = self.client.head_object(
+            Bucket=self.bucket_names[target],
+            Key=self.key_prefixes[target] + key
+        )
+        return response['ContentLength']
 
     def list_bucket(
         self,
@@ -96,13 +100,13 @@ class S3Service:
         bytes_string = response['Body'].read()
         return bytes_string.decode().strip('\n').split('\n')
 
-    def upload_figure(self, mtx_info: MatrixInfo, figure: str) -> None:
+    def upload_figure(self, folder: str, figure: str) -> None:
         """
         Upload figures generated from the downloaded matrix.
         """
+        figure = f'{figure}.{MatrixSummaryStats.figure_format}'
         bucket = self.bucket_names['figures']
-        key = f'{self.key_prefixes["figures"]}{mtx_info.figures_folder}{figure}'
-        log.debug(f'Uploading {figure} to S3 bucket {bucket} as {key}')
+        key = f'{self.key_prefixes["figures"]}{folder}{figure}'
         self.client.upload_file(
             Filename=f'figures/{figure}',
             Bucket=bucket,
@@ -113,6 +117,7 @@ class S3Service:
                 'ContentType': f'image/{MatrixSummaryStats.figure_format}'
             }
         )
+        log.info(f'Uploading {figure} to S3 bucket {bucket} as {key}')
 
 
 s3service = S3Service()

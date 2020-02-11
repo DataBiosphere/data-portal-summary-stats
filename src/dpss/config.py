@@ -4,13 +4,16 @@ from typing import (
     Set,
     Optional,
 )
+import datetime
 
 
 class Config:
-
     _project_url = 'https://service.{}explore.data.humancellatlas.org/repository/projects/'
     _matrix_url = 'https://matrix.{}data.humancellatlas.org/v1/'
     _assets_bucket = '{}project-assets.data.humancellatlas.org'
+
+    def __init__(self):
+        self._init_time = datetime.datetime.now()
 
     @property
     def source_stage(self) -> str:
@@ -37,7 +40,8 @@ class Config:
     def ignore_mtime(self) -> bool:
         return os.environ.get('DPSS_FORCE') == '1'
 
-    def stage_str(self, stage: str) -> str:
+    @classmethod
+    def stage_str(cls, stage: str) -> str:
         return '' if stage == 'prod' else f'{stage}.'
 
     @property
@@ -67,6 +71,18 @@ class Config:
     @property
     def local_projects_path(self) -> Path:
         return Path('projects')
+
+    @property
+    def memory_log_file(self) -> Path:
+        return Path('dpss_memory_log.txt')
+
+    @property
+    def memory_interval(self) -> float:
+        return 1.0
+
+    @classmethod
+    def time_fmt(cls, t: datetime.datetime) -> str:
+        return t.strftime('%m-%d-%Y_%H:%M:%S;%f')
 
 
 config = Config()

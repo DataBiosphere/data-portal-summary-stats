@@ -3,7 +3,6 @@ from pathlib import Path
 import unittest
 
 from dpss.config import config
-from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
 from dpss.s3_service import (
     s3service,
@@ -66,28 +65,18 @@ class TestS3Service(S3TestCase):
         self.assertEqual(blacklist, ['123', '456', '789'])
 
     def test_upload_figures(self):
-        figures_files = MatrixSummaryStats.target_images().keys()
-        figures_dir = 'figures'
+        figures_files = list(MatrixSummaryStats.target_images().keys())
         project_uuid = '123'
         lca = 'SS2'
         with TemporaryDirectoryChange():
-            os.mkdir(figures_dir)
-            parent = Path(figures_dir)
+            figures_dir = Path('figures')
+            figures_dir.mkdir()
             for file in figures_files:
-                (parent / file).touch()
-                s3service.upload_figure(
-                    MatrixInfo(
-                        source='nonexistent',
-                        zip_path=None,
-                        extract_path=Path('does/not/exist'),
-                        project_uuid=project_uuid,
-                        lib_con_approaches=frozenset([lca])
-                    ),
-                    file
-                )
+                (figures_dir / f'{file}.{MatrixSummaryStats.figure_format}').touch()
+                s3service.upload_figure(f'{project_uuid}/{lca}/', file)
             found_objects = set(s3service.list_bucket('figures'))
             expected_objects = {
-                f'{config.s3_figures_prefix}{project_uuid}/{lca}/{file}'
+                f'{config.s3_figures_prefix}{project_uuid}/{lca}/{file}.{MatrixSummaryStats.figure_format}'
                 for file
                 in figures_files
             }
