@@ -4,6 +4,7 @@
 #
 # - No leading slash means the pattern matches at any depth.
 
+*.swp
 
 # Python files
 *.pyc
@@ -29,5 +30,7 @@ venv.bak/
 *.tfstate
 *.tfstate.*
 
-# Crash log files
+# log files
 crash.log
+dpss_log.txt
+dpss_memory_log.txt
