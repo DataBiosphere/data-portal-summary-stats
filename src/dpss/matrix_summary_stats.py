@@ -195,21 +195,18 @@ class MatrixSummaryStats:
         # 6. Figure: Principal components, PC2 against PC1
         if self.example_gene is None:
             log.error('No common gene to plot pca')
-        elif any(adata.shape[0] < 51 for adata in self.adatas):
-            log.error('matrix is too small for pca')
         else:
             for adata in self.adatas:
-                sc.tl.pca(adata, svd_solver='arpack')
+                n_comps = min(sum(adata.var['highly_variable'])-1, 50)
+                sc.tl.pca(adata, svd_solver='arpack', n_comps=n_comps)
             self._simple_plot('pca', sc.pl.pca, color=self.example_gene)
 
     def umap(self):
         # 7. Figure: tSNE, Umap 2 against Umap1, of Louvain and CST3.
-        if any(adata.shape[0] < 40 for adata in self.adatas):
-            log.error('matrix is too small for umap')
-            return
 
         for adata in self.adatas:
-            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=40)
+            n_pcs = min(sum(adata.var['highly_variable'])-1, 40)
+            sc.pp.neighbors(adata, n_neighbors=10, n_pcs=n_pcs)
             sc.tl.umap(adata)
             sc.tl.louvain(adata)
 
