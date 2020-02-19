@@ -1,5 +1,4 @@
 import gzip
-import logging
 import os
 from pathlib import Path
 
@@ -16,17 +15,17 @@ from typing import (
 )
 from zipfile import ZipFile
 
+from dpss.logging import setup_log
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
+from dpss.memthread import MEMORY_USAGE
 from dpss.utils import (
     DirectoryChange,
     gunzip,
     traverse_dirs,
-    setup_log,
 )
 
-log = logging.getLogger(__name__)
-setup_log(__name__, logging.INFO, logging.StreamHandler())
+log = setup_log(__name__)
 
 
 class Mtx:
@@ -171,7 +170,7 @@ class MatrixPreparer:
                 gunzip(barcodes_file)
                 return path
 
-        return [
+        found_infos = [
             MatrixInfo(
                 zip_path=None,
                 extract_path=path,
@@ -183,27 +182,32 @@ class MatrixPreparer:
             in filter(None, map(find_matrix, traverse_dirs(self.info.extract_path)))
         ]
 
+        log.info('Found and unzipped %i matrices', len(found_infos))
+        return found_infos
+
     def preprocess(self):
         """
         Transform tsv/mtx files for ScanPy compatibility.
         """
         with DirectoryChange(self.info.extract_path):
-            log.info('Processing matrix.mtx')
+            log.log(MEMORY_USAGE, 'Processing matrix.mtx')
             mtx = Mtx('matrix.mtx')
+            log.log(MEMORY_USAGE, 'Finished loading mtx file')
             sizes = mtx.sizes
             if mtx.process():
                 mtx.write()
 
             del mtx
+            log.log(MEMORY_USAGE, 'Finished processing mtx file')
 
-            log.info('Processing genes.tsv')
+            log.debug('Processing genes.tsv')
             genes = GenesTsv('genes.tsv', False)
             if genes.detect_header(sizes[0]) | genes.process():
                 genes.write()
 
             del genes
 
-            log.info('Processing barcodes.tsv')
+            log.debug('Processing barcodes.tsv')
             barcodes = BarcodesTsv('barcodes.tsv', False)
             if barcodes.detect_header(sizes[1]) | barcodes.process():
                 barcodes.write()

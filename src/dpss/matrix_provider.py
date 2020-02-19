@@ -4,7 +4,6 @@ from abc import (
 )
 from datetime import datetime
 import json
-import logging
 import os
 from pathlib import Path
 import re
@@ -27,6 +26,7 @@ import pandas as pd
 
 from dpss.config import config
 from dpss.exceptions import SkipMatrix
+from dpss.logging import setup_log
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_summary_stats import MatrixSummaryStats
 from dpss.s3_service import s3service
@@ -34,7 +34,6 @@ from dpss.utils import (
     convert_size,
     file_id,
     remove_ext,
-    setup_log,
     filter_exceptions,
     sort_optionals,
 )
@@ -42,8 +41,7 @@ from more_itertools import (
     one,
 )
 
-log = logging.getLogger(__name__)
-setup_log(__name__, logging.INFO, logging.StreamHandler())
+log = setup_log(__name__)
 
 
 class MatrixProvider(ABC):
@@ -100,7 +98,7 @@ class MatrixProvider(ABC):
         log.info(f'Found {len(entity_ids)} entities, {len(filtered_entity_ids)} of which seem fit for processing')
 
         for (entity_id, skip) in skips:
-            log.info(f'Matrix {entity_id} skipped for reason: {skip}')
+            log.debug(f'Matrix {entity_id} skipped for reason: {skip}')
 
         sorted_entity_ids = sort_optionals(
             filtered_entity_ids,
@@ -251,7 +249,7 @@ class FreshMatrixProvider(MatrixProvider):
         status_response = self._request_matrix(project_id)
         assert status_response.status_code == 200
         s3_download_url = status_response.json()['matrix_url']
-        log.info(f'Download URL for matrix is {s3_download_url}')
+        log.debug(f'Download URL for matrix is {s3_download_url}')
 
         matrix_response = requests.get(s3_download_url, stream=True)
         matrix_zipfile_name = os.path.basename(s3_download_url)
@@ -285,8 +283,8 @@ class FreshMatrixProvider(MatrixProvider):
             }
         }
 
-        log.info(f'Requesting expression matrix for project document ID {project_id}')
-        log.info(f'Request payload and filter settings: {payload}')
+        log.debug(f'Requesting expression matrix for project document ID {project_id}')
+        log.debug(f'Request payload and filter settings: {payload}')
         response = requests.post(self.hca_matrix_service_request_url, json=payload)
         request_id = response.json()["request_id"]
         self.check_response(response)
@@ -297,7 +295,7 @@ class FreshMatrixProvider(MatrixProvider):
             if status == 'Complete':
                 break
             elif status == 'In Progress':
-                log.info(f'Matrix request status: {status}...')
+                log.debug(f'Matrix request status: {status}...')
                 time.sleep(30)
                 minute_counter += 0.5
             else:

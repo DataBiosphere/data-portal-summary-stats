@@ -16,6 +16,18 @@ class Config:
         self._init_time = datetime.datetime.now()
 
     @property
+    def log_level(self) -> int:
+        env = os.environ.get('DPSS_LOG_LEVEL', 'INFO')
+        try:
+            import logging as lib_logging
+            level = getattr(lib_logging, env)
+        except AttributeError:
+            import dpss.logging as dpss_logging
+            level = getattr(dpss_logging, env)
+        assert isinstance(level, int)
+        return level
+
+    @property
     def source_stage(self) -> str:
         return os.environ['DPSS_MTX_SOURCE_STAGE']
 

@@ -1,6 +1,5 @@
 from collections import defaultdict
 from pathlib import Path
-import logging
 from typing import (
     Sequence,
     List,
@@ -8,6 +7,7 @@ from typing import (
 )
 
 from dpss.exceptions import SkipMatrix
+from dpss.logging import setup_log
 from dpss.matrix_info import MatrixInfo
 from dpss.matrix_preparer import MatrixPreparer
 from dpss.matrix_summary_stats import MatrixSummaryStats
@@ -17,7 +17,7 @@ from dpss.utils import (
     common_attr,
 )
 
-log = logging.getLogger(__name__)
+log = setup_log(__name__)
 
 
 def prepare_matrices(project_mtx_info: MatrixInfo) -> Dict[str, List[MatrixInfo]]:

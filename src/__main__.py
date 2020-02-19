@@ -3,16 +3,15 @@ import logging
 from dpss import (
     run,
     matrix_provider,
+    setup_log,
 )
 from dpss.config import config
 from dpss.memthread import MemoryMonitorThread
 from dpss.utils import (
     TemporaryDirectoryChange,
-    setup_log,
 )
 
-log = logging.getLogger(__name__)
-setup_log(__name__, logging.INFO, logging.StreamHandler())
+log = setup_log(__name__)
 
 # These libraries make a lot of debug-level log messages which make the log file hard to read
 logging.getLogger("requests").setLevel(logging.WARNING)

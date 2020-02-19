@@ -9,15 +9,15 @@ from typing import (
 from more_itertools import one
 import scanpy as sc
 import numpy as np
-import logging
 import matplotlib
 
+from dpss.logging import setup_log
 from dpss.matrix_info import MatrixInfo
 import matplotlib.pyplot as plt
-from dpss.utils import setup_log
 
-log = logging.getLogger(__name__)
-setup_log(__name__, logging.INFO, logging.StreamHandler())
+from dpss.memthread import MEMORY_USAGE
+
+log = setup_log(__name__)
 
 # See https://stackoverflow.com/questions/27147300/
 # matplotlib-tcl-asyncdelete-async-handler-deleted-by-the-wrong-thread
@@ -62,18 +62,19 @@ class MatrixSummaryStats:
         self.adatas = None
 
     def load_data(self):
-        log.info('Loading scanpy data')
         self.adatas = []
         self.show_mito_genes = True
 
         for info in self.infos:
 
+            log.log(MEMORY_USAGE, 'Loading 10X matrix')
             adata = sc.read_10x_mtx(
                 info.extract_path,
                 var_names='gene_symbols',
                 cache=False
             )
 
+            log.log(MEMORY_USAGE, 'Processing AnnData')
             # some files use numbers as ids which causes following steps to fail
             adata.var_names = adata.var_names.map(str)
             adata.obs_names = adata.obs_names.map(str)
@@ -100,14 +101,17 @@ class MatrixSummaryStats:
             self.adatas.append(adata)
             self.show_mito_genes &= found_mito_genes
 
+            log.log(MEMORY_USAGE, 'Finished processing AnnData')
+
         common_gene = self.default_example_gene
         genes = iter(self.adatas[0].var_names)
         try:
             while not all(common_gene in adata.var_names for adata in self.adatas):
                 common_gene = next(genes)
         except StopIteration:
-            pass
+            log.warning('No gene found in common across all matrices')
         else:
+            log.info(f'Using gene {common_gene} for visualization')
             self.example_gene = common_gene
 
     @classmethod

@@ -1,4 +1,3 @@
-import logging
 from typing import (
     List,
     Dict,
@@ -9,11 +8,10 @@ from typing import (
 import boto3
 
 from dpss.config import config
+from dpss.logging import setup_log
 from dpss.matrix_summary_stats import MatrixSummaryStats
-from dpss.utils import setup_log
 
-log = logging.getLogger(__name__)
-setup_log(__name__, logging.INFO, logging.StreamHandler())
+log = setup_log(__name__)
 
 
 class S3Service:
@@ -38,7 +36,7 @@ class S3Service:
     @property
     def client(self):
         if self._client is None:
-            log.info('Initializing S3 service...')
+            log.info('Initializing S3 service')
             self._client = boto3.client('s3')
         return self._client
 
@@ -107,6 +105,8 @@ class S3Service:
         figure = f'{figure}.{MatrixSummaryStats.figure_format}'
         bucket = self.bucket_names['figures']
         key = f'{self.key_prefixes["figures"]}{folder}{figure}'
+
+        log.info(f'Uploading {figure} to S3 bucket {bucket} as {key}')
         self.client.upload_file(
             Filename=f'figures/{figure}',
             Bucket=bucket,
@@ -117,7 +117,6 @@ class S3Service:
                 'ContentType': f'image/{MatrixSummaryStats.figure_format}'
             }
         )
-        log.info(f'Uploading {figure} to S3 bucket {bucket} as {key}')
 
 
 s3service = S3Service()
